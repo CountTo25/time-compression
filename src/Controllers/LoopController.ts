@@ -179,14 +179,15 @@ class LoopController extends Controller {
             + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
 
 
+        const payload = EventController.getRandomEvent().name;
         const wrapped = {occursAt}
         for (const hook of this.hooks.onEventRoll) {
-                hook(this.gamedata, wrapped);
+                hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
         }
 
         this.gamedata.loops.current.events.push({
             occursAt: wrapped.occursAt,
-            payload: 'Observation',
+            payload,
         });
         this.toRender.push(occursAt);
         toRender.set(this.toRender);

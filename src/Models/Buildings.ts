@@ -10,12 +10,13 @@ const buildings: BuildingModel[] = [
         onetime: true,
         price: 15,
         onActive: () => (hooks.update(h => {
-            h.onEventRoll.push((gd, o) => {
-                o.occursAt-=100;
+            h.onEventRoll.push((gd, o, now) => {
+                const diff = o.occursAt - now;
+                if (diff > 0) {o.occursAt-=100}
             });
             return h
         })),
-        description: 'Use your knowledge on to predict what actions lead to which events'
+        description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`
     },
     {
         name: 'Careful observation', 

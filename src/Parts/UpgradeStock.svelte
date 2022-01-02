@@ -16,13 +16,13 @@ $: $gamedata,(()=>
 <div class='title'>Upgrades</div>
 <div class='wrap-stock mt-2 text-center'>
     {#if purchaseable.length === 0}
-        No buildings available at the time
+        No upgrades available at the time
     {/if}
     {#each purchaseable as building}
     <div class='upgrade-node my-1'>
         <div class='subtitle oswld'>{building.name}</div>
         <div class='description text-start'>
-            {building.description}
+            {@html building.description}
         </div>
         <div class='actions my-1'>
             <div class='row px-0'>

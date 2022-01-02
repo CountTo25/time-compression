@@ -1100,12 +1100,15 @@ var app = (function () {
             onetime: true,
             price: 15,
             onActive: () => (hooks.update(h => {
-                h.onEventRoll.push((gd, o) => {
-                    o.occursAt -= 100;
+                h.onEventRoll.push((gd, o, now) => {
+                    const diff = o.occursAt - now;
+                    if (diff > 0) {
+                        o.occursAt -= 100;
+                    }
                 });
                 return h;
             })),
-            description: 'Use your knowledge on to predict what actions lead to which events'
+            description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`
         },
         {
             name: 'Careful observation',
@@ -6927,6 +6930,14 @@ var app = (function () {
             ],
             unlocksAt: (gd) => true,
         },
+        {
+            name: 'Acceleration',
+            effect: () => { EventController$1.shift(0.95); return 0; },
+            messages: [
+                'Your interferience with this timeflow caused event occurrence to speed up'
+            ],
+            unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings
+        }
     ];
 
     class EventController extends Controller {
@@ -6980,6 +6991,14 @@ var app = (function () {
         getRandomEvent() {
             const rollable = events.filter(e => e.unlocksAt(this.gamedata));
             return rollable[Math.floor(rollable.length * Math.random())];
+        }
+        shift(amount) {
+            this.gamedata.loops.current.events = this.gamedata.loops.current.events.map(e => {
+                const newOccurrence = e.occursAt * amount > this.gamedata.loops.current.progress.time
+                    ? e.occursAt * amount
+                    : e.occursAt;
+                return Object.assign(Object.assign({}, e), { occursAt: newOccurrence });
+            });
         }
     }
     var EventController$1 = initializeController(EventController);
@@ -7306,7 +7325,8 @@ var app = (function () {
             const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
             this.gamedata.loops.completed.splice(index, 1);
             //@ts-ignore
-            clearInterval(this.loopTicker[id]);
+            clearInterval(this.loopTicker[index][id]);
+            console.log(this.loopTicker);
             delete this.loopTicker[id];
             gamedata.set(this.gamedata);
         }
@@ -7456,13 +7476,14 @@ var app = (function () {
             const events = this.gamedata.loops.current.events;
             const occursAt = events[events.length - 1].occursAt
                 + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+            const payload = EventController$1.getRandomEvent().name;
             const wrapped = { occursAt };
             for (const hook of this.hooks.onEventRoll) {
-                hook(this.gamedata, wrapped);
+                hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
             }
             this.gamedata.loops.current.events.push({
                 occursAt: wrapped.occursAt,
-                payload: 'Observation',
+                payload,
             });
             this.toRender.push(occursAt);
             toRender.set(this.toRender);
@@ -8052,7 +8073,7 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
-    			t = text("No buildings available at the time");
+    			t = text("No upgrades available at the time");
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, t, anchor);
@@ -8203,20 +8224,19 @@ var app = (function () {
     	let t0;
     	let t1;
     	let div1;
-    	let t2_value = /*building*/ ctx[3].description + "";
+    	let raw_value = /*building*/ ctx[3].description + "";
     	let t2;
-    	let t3;
     	let div5;
     	let div4;
     	let div2;
-    	let t4_value = /*building*/ ctx[3].price + "";
+    	let t3_value = /*building*/ ctx[3].price + "";
+    	let t3;
     	let t4;
     	let t5;
-    	let t6;
     	let div3;
     	let current_block_type_index;
     	let if_block;
-    	let t7;
+    	let t6;
     	let current;
     	const if_block_creators = [create_if_block$3, create_else_block$2];
     	const if_blocks = [];
@@ -8236,31 +8256,30 @@ var app = (function () {
     			t0 = text(t0_value);
     			t1 = space();
     			div1 = element("div");
-    			t2 = text(t2_value);
-    			t3 = space();
+    			t2 = space();
     			div5 = element("div");
     			div4 = element("div");
     			div2 = element("div");
-    			t4 = text(t4_value);
-    			t5 = text(" data");
-    			t6 = space();
+    			t3 = text(t3_value);
+    			t4 = text(" data");
+    			t5 = space();
     			div3 = element("div");
     			if_block.c();
-    			t7 = space();
+    			t6 = space();
     			attr_dev(div0, "class", "subtitle oswld svelte-1iuzwq1");
-    			add_location(div0, file$5, 17, 8, 712);
+    			add_location(div0, file$5, 17, 8, 711);
     			attr_dev(div1, "class", "description text-start svelte-1iuzwq1");
-    			add_location(div1, file$5, 18, 8, 770);
+    			add_location(div1, file$5, 18, 8, 769);
     			attr_dev(div2, "class", "col-6 my-auto");
-    			add_location(div2, file$5, 23, 16, 943);
+    			add_location(div2, file$5, 23, 16, 948);
     			attr_dev(div3, "class", "col-6 my-auto");
-    			add_location(div3, file$5, 26, 16, 1052);
+    			add_location(div3, file$5, 26, 16, 1057);
     			attr_dev(div4, "class", "row px-0");
-    			add_location(div4, file$5, 22, 12, 904);
+    			add_location(div4, file$5, 22, 12, 909);
     			attr_dev(div5, "class", "actions my-1");
-    			add_location(div5, file$5, 21, 8, 865);
+    			add_location(div5, file$5, 21, 8, 870);
     			attr_dev(div6, "class", "upgrade-node my-1 svelte-1iuzwq1");
-    			add_location(div6, file$5, 16, 4, 672);
+    			add_location(div6, file$5, 16, 4, 671);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div6, anchor);
@@ -8268,23 +8287,22 @@ var app = (function () {
     			append_dev(div0, t0);
     			append_dev(div6, t1);
     			append_dev(div6, div1);
-    			append_dev(div1, t2);
-    			append_dev(div6, t3);
+    			div1.innerHTML = raw_value;
+    			append_dev(div6, t2);
     			append_dev(div6, div5);
     			append_dev(div5, div4);
     			append_dev(div4, div2);
+    			append_dev(div2, t3);
     			append_dev(div2, t4);
-    			append_dev(div2, t5);
-    			append_dev(div4, t6);
+    			append_dev(div4, t5);
     			append_dev(div4, div3);
     			if_blocks[current_block_type_index].m(div3, null);
-    			append_dev(div6, t7);
+    			append_dev(div6, t6);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
     			if ((!current || dirty & /*purchaseable*/ 2) && t0_value !== (t0_value = /*building*/ ctx[3].name + "")) set_data_dev(t0, t0_value);
-    			if ((!current || dirty & /*purchaseable*/ 2) && t2_value !== (t2_value = /*building*/ ctx[3].description + "")) set_data_dev(t2, t2_value);
-    			if ((!current || dirty & /*purchaseable*/ 2) && t4_value !== (t4_value = /*building*/ ctx[3].price + "")) set_data_dev(t4, t4_value);
+    			if ((!current || dirty & /*purchaseable*/ 2) && raw_value !== (raw_value = /*building*/ ctx[3].description + "")) div1.innerHTML = raw_value;			if ((!current || dirty & /*purchaseable*/ 2) && t3_value !== (t3_value = /*building*/ ctx[3].price + "")) set_data_dev(t3, t3_value);
     			let previous_block_index = current_block_type_index;
     			current_block_type_index = select_block_type(ctx);
 

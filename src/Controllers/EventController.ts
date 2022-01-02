@@ -60,6 +60,15 @@ class EventController extends Controller {
         const rollable = events.filter(e => e.unlocksAt(this.gamedata));
         return rollable[Math.floor(rollable.length * Math.random())];
     }
+
+    public shift(amount: number) {
+        this.gamedata.loops.current.events = this.gamedata.loops.current.events.map(e => {
+            const newOccurrence = e.occursAt * amount > this.gamedata.loops.current.progress.time 
+                ? e.occursAt * amount
+                : e.occursAt
+            return {...e, occursAt: newOccurrence}
+        })
+    }
 }
 
 export default initializeController<EventController>(EventController);

@@ -9,6 +9,6 @@ export const empty = {
 export const hooks: Writable<Hooks> = writable(empty);
 
 export type Hooks = {
-    onEventRoll: ((gd: Gamedata, {occursAt: number}) => void)[],
+    onEventRoll: ((gd: Gamedata, {occursAt: number}, now: number) => void)[],
     onIncome: ((gd: Gamedata, {value: number}) => void)[],
 }

@@ -1,4 +1,5 @@
 import DataController from "../Controllers/DataController";
+import EventController from "../Controllers/EventController";
 import type { Gamedata, gamedata } from "../Storage/gamedata";
 import { tap } from "../Tools/tap";
 
@@ -21,6 +22,14 @@ const events: EventModel[] = [
         ],
         unlocksAt: (gd) => true,
     },
+    {
+        name: 'Acceleration',
+        effect: ()=>{EventController.shift(0.95); return 0},
+        messages: [
+            'Your interferience with this timeflow caused event occurrence to speed up'
+        ],
+        unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings
+    }
 ];
 
 

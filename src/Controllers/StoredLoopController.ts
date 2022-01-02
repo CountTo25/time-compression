@@ -38,7 +38,9 @@ class StoredLoopController extends Controller {
         const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
         this.gamedata.loops.completed.splice(index, 1);
         //@ts-ignore
-        clearInterval(this.loopTicker[id]);
+        clearInterval(this.loopTicker[index][id]);
+
+        console.log(this.loopTicker);
         delete this.loopTicker[id];
         gamedata.set(this.gamedata);
     }
