@@ -1,0 +1,281 @@
+
+@font-face {
+	font-family: 'Montserrat';
+	font-style: normal;
+	font-weight: 400;
+	src: url('/fonts/Montserrat-Regular.ttf')
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	font-style: normal;
+	font-weight: 100;
+	src: url('fonts/Montserrat-Light.ttf')
+}
+
+@font-face {
+	font-family: 'Oswald';
+	font-style: normal;
+	font-weight: 400;
+	src: url('fonts/Oswald.ttf')
+}
+
+* {box-sizing: border-box;}
+
+.mnt {
+	font-family: 'Montserrat', sans-serif;
+}
+
+.oswld {
+	font-family: 'Oswald', sans-serif;
+}
+
+.row,.container-fluid {
+	width: 100% !important;
+	margin: 0 !important;
+	padding: 0 !important;
+}
+
+.title {
+	font-family: 'Oswald', sans-serif;
+	font-size: 2rem;
+	line-height: 2.5rem;
+}
+
+body {
+	--color-bg: #2c3548;
+	--color-font: rgb(207, 214, 230); 
+	--color-bg-depth-1: #2c3548;
+	--color-bg-highlight: #1f2635;
+
+	background-color: var(--color-bg);
+	color: var(--color-font);
+	font-family: 'Montserrat', sans-serif;
+	margin: 0 !important;
+}
+
+input {
+	border: 2px solid var(--color-font);
+	padding:3px;
+	outline: none;
+	background-color: var(--color-bg);
+	color: var(--color-font);
+}
+
+input.big {
+	font-family: 'Oswald', sans-serif;
+	font-size: 1.5rem;
+}
+
+
+.button {
+	border: 2px solid var(--color-font);
+	display: inline-block;
+	padding: 5px;
+	cursor: pointer;
+	user-select: none;
+	transition: 0.25s all;
+}
+
+.button.inactive {
+	opacity: 0.5;
+	cursor: default;
+}
+
+.button:hover {
+
+}
+
+.button:not(.inactive):active {
+	transform: translateY(4px);
+}
+
+.button.highlight {
+	background-color: var(--color-bg-highlight);
+}
+
+.shadow {
+	margin-bottom: 4px;
+	display: inline-block;
+}
+
+.shadow::after {
+	position: absolute;
+	border-bottom: 2px solid var(--color-font);
+	left: 4px;
+	top: calc(100% + 4px);
+	width: calc(100% - 8px);
+	content: '';
+	opacity: 0.7;
+	transition: 0.25s all;
+}
+
+:not(.inactive):active.shadow:not(.static)::after {
+	top: calc(100% + 2px);
+	opacity: 0;
+}
+
+.shadow {
+	position: relative;
+}
+
+.text-center {
+	text-align: center;
+}
+
+.text-end {
+	text-align: right;
+}
+
+.text-start {
+	text-align: left;
+}
+
+.panel {
+	border: 2px solid var(--color-font);
+}
+
+.panel.depth-1 {
+	background: var(--color-bg-depth-1);
+}
+
+
+a, a:visited {
+	color: var(--color-font);
+}
+
+.menu {
+	border-right: 2px solid var(--color-font);	
+}
+
+.pad-wrap {
+	padding-top: 2vh;
+	padding-bottom: 2vh;
+}
+
+.h-100 {
+	height: 100vh;
+}
+
+.w-100-p {
+	width: 100%;
+}
+.of-y {
+	overflow-y: scroll;
+}
+
+
+.progressbar {
+	position: relative;
+	height: 32px;
+}
+
+.progressbar .node {
+	padding: 2px;
+	width: calc(5% - 4px);
+	position: relative;
+	background: var(--color-font);
+	height: calc(100% - 8px);
+	top: 4px;
+	display: inline-block;
+	margin-left: 2px;
+	margin-right: 2px;
+}
+
+.progressbar .node:last-of-type:after {
+	left: calc(50% + 4px);
+	content: '';
+	position: absolute;
+	border-right: 4px solid var(--color-font);
+	height: 100%;
+	top: 0;
+	transition: 0.25s all;
+	animation-name: blinkborder;
+	animation-duration: 2s;
+	animation-iteration-count: infinite;
+	animation-direction: alternate-reverse;
+}
+
+.progressbar .node:last-of-type {
+	background: linear-gradient(90deg, var(--color-font) 50%, #ffffff00 50%);
+	background-repeat: no-repeat;
+}
+
+.progressbar .pre,.root,.post {
+	display: inline-block;
+	height: 2rem;
+}
+
+.progressbar .pre,.post {
+	border-left: 2px solid var(--color-font);
+	position: absolute;
+	top: 6px;
+	height: calc(2rem - 12px);
+}
+
+.progressbar .post {
+	left: calc(100% - 2px);
+}
+
+.progressbar .root {
+	width: 100%;
+	border-top: 2px solid var(--color-font);
+	border-bottom: 2px solid var(--color-font);
+	padding-left: 4px;
+	padding-right: 4px;
+	position: relative;
+}
+
+.bt-2 {
+	border-top: 2px solid var(--color-font);	
+}
+
+.progressbar .label {
+	position: absolute;
+	text-align: center;
+	width: 100%;
+	left: 0px;
+	margin-top: auto;
+	margin-bottom: auto;
+}
+
+.progressbar .label-container {
+	position:relative;
+	z-index: 2;
+	padding: 5px;
+	background-color: var(--color-bg);
+	display: inline-block;
+	height: calc(2rem - 5px);
+}
+
+.glass {
+	backdrop-filter: blur(5px);
+}
+
+.glass.over-light {
+	background-color: #00000080;
+}
+
+.modal-wrap {
+	border: 2px solid var(--color-font);
+	padding: 5px;
+}
+
+
+@media only screen and (max-width: 768px) {
+	.menu {
+		border-right: none;
+		border-bottom: 2px solid var(--color-font);
+	}
+  }
+
+
+  @keyframes blinkborder {
+	from {
+		opacity: 0.25;
+	}
+  
+	to {
+	  opacity: 1;
+	}
+  }
