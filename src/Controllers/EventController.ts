@@ -51,10 +51,14 @@ class EventController extends Controller {
 
         this.gamedata.events.stored.splice(index, 1);
 
-       
-
         gamedata.set(this.gamedata);
         
+    }
+
+
+    public getRandomEvent() {
+        const rollable = events.filter(e => e.unlocksAt(this.gamedata));
+        return rollable[Math.floor(rollable.length * Math.random())];
     }
 }
 

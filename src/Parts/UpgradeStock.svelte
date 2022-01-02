@@ -1,46 +1,49 @@
 <script lang="ts">
 import Button from "../Components/Button.svelte";
+import DataController from "../Controllers/DataController";
+import buildings from "../Models/Buildings";
+import { gamedata } from "../Storage/gamedata";
 
+let purchaseable = [];
+$: $gamedata,(()=>
+    purchaseable = $gamedata.loops.current.fresh 
+        ? DataController.getPurchaseableBuildings()
+        : buildings.filter(b => Object.keys($gamedata.loops.current.buildings).includes(b.name))
+)()
 
 </script>
 
 <div class='title'>Upgrades</div>
-<div class='wrap-stock'>
-    <div class='mt-2 text-center'>
-        <div class='upgrade-node my-1'>
-            <div class='subtitle oswld'>Chain of events</div>
-            <div class='description text-start'>
-                Accelerate event appearance rate by using data to predict what actions cause which events
-            </div>
-            <div class='actions my-1'>
-                <div class='row px-0'>
-                    <div class='col-6 my-auto'>
-                        10 data
-                    </div>
-                    <div class='col-6 my-auto'>
-                        <Button mw={true} inactive={true}>Buy</Button>
-                    </div>
-                </div>
-            </div>
+<div class='wrap-stock mt-2 text-center'>
+    {#if purchaseable.length === 0}
+        No buildings available at the time
+    {/if}
+    {#each purchaseable as building}
+    <div class='upgrade-node my-1'>
+        <div class='subtitle oswld'>{building.name}</div>
+        <div class='description text-start'>
+            {building.description}
         </div>
-
-        <div class='upgrade-node my-1'>
-            <div class='subtitle oswld'>Careful analytics</div>
-            <div class='description text-start'>
-                Dig deeper into events that occur and extract more data from them
-            </div>
-            <div class='actions my-1'>
-                <div class='row px-0'>
-                    <div class='col-6 my-auto'>
-                        40 data
-                    </div>
-                    <div class='col-6 my-auto'>
-                        <Button mw={true} inactive={true}>Buy</Button>
-                    </div>
+        <div class='actions my-1'>
+            <div class='row px-0'>
+                <div class='col-6 my-auto'>
+                    {building.price} data
+                </div>
+                <div class='col-6 my-auto'>
+                    {#if $gamedata.loops.current.fresh}
+                    <Button 
+                        mw={true} 
+                        inactive={$gamedata.data.amount < building.price}
+                        on:click={() => DataController.purchaseBuilding(building.name)}
+                    >Buy</Button>
+                    {:else}
+                        purchased
+                    {/if}
                 </div>
             </div>
         </div>
     </div>
+    {/each}
 </div>
 
 

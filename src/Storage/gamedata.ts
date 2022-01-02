@@ -19,6 +19,7 @@ export const gamedata: Writable<Gamedata> = writable({
             length: 0,
             events: [],
             recorded: [],
+            buildings: {},
         },
         completed: [],
     },
@@ -48,6 +49,9 @@ export type Gamedata = {
             recorded: PlaybackEvent[],
             events: Event[],
             length: number,
+            buildings: {
+                [key: string]: number
+            }
         },
         completed: [],
     },
@@ -66,4 +70,4 @@ type Event = {
 }
 
 type OccuredEvent = Event & {message: string}
-type PlaybackEvent = {at: number, message: string, deltaData: number}
+type PlaybackEvent = {at: number, message: string, deltaData: number, consumed: boolean}

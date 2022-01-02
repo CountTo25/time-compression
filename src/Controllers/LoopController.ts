@@ -1,7 +1,11 @@
+import buildings from "../Models/Buildings";
 import { Gamedata, gamedata } from "../Storage/gamedata";
+import { Hooks, hooks } from "../Storage/loopHooks";
 import tickers, {clearTickers, pushListener} from "../Storage/tickers";
 import { toRender } from "../Storage/timeline";
 import initializeController from "../Tools/initializeController";
+import DataController from "./DataController";
+import EventController from "./EventController";
 import { Controller } from "./Support/Controller";
 
 class LoopController extends Controller {
@@ -9,10 +13,12 @@ class LoopController extends Controller {
         {key: 'gamedata', source: gamedata},
         {key: 'tickers', source: tickers},
         {key: 'toRender', source: toRender},
+        {key: 'hooks', source: hooks},
     ];
     private gamedata!: Gamedata;
     private tickers!: Function[];
     private toRender!: number[];
+    private hooks!: Hooks;
 
     private loopTicker: ReturnType<typeof setInterval> =  null;
 
@@ -35,14 +41,15 @@ class LoopController extends Controller {
                 next: 0,
             },
             length: 0,
+            buildings: {},
             events: [],
             recorded: [],
         };
+        this.rehook();
         gamedata.set(this.gamedata);
     }
 
     public getCurrentMainAction(): Function {
-        console.log('eeeeh');
         if (this.gamedata.loops.current.fresh) {
             return this.toggleLoop.bind(this);
         }
@@ -50,8 +57,6 @@ class LoopController extends Controller {
         if (!this.gamedata.loops.current.fresh) {
             return this.discardLoop.bind(this);
         }
-
-        console.log('!!!!');
     }
 
     private recordLoop(): void
@@ -63,7 +68,16 @@ class LoopController extends Controller {
         this.gamedata.loops.current.fresh = false;
         this.gamedata.loops.current.paused = false;
         this.gamedata.loops.current.length = this.gamedata.loops.current.progress.time;
+        this.rehook();
         gamedata.set(this.gamedata);
+    }
+
+    private rehook() {
+        this.hooks = {onEventRoll: [], onIncome: []};
+        hooks.set(this.hooks);
+        for (const key in this.gamedata.loops.current.buildings) {
+            buildings.filter(b => b.name === key)[0].onActive();
+        }
     }
 
     private startLoop(): void
@@ -79,6 +93,7 @@ class LoopController extends Controller {
             this.seedEvents();
         }
         this.restartInterval();
+        this.rehook();
         gamedata.set(this.gamedata);
     }
 
@@ -87,10 +102,8 @@ class LoopController extends Controller {
         const count = 5;
         for (let i = 0; i<count; i++) {
             const occursAt = (i+1)*1000; //1s per each +1 to offset
-            this.gamedata.loops.current.events.push({
-                occursAt,
-                payload: 'Observation', //TODO: unfuck boring default values
-            })
+            const payload = EventController.getRandomEvent().name;
+            this.gamedata.loops.current.events.push({occursAt,payload})
             this.toRender.push(occursAt);
         }
     }
@@ -111,9 +124,8 @@ class LoopController extends Controller {
             const consumable = this.gamedata.loops.current.recorded
                 .filter(e => this.gamedata.loops.current.progress.time >= e.at && !e.consumed);
             for (const c of consumable) {
-                this.gamedata.data.amount+=c.deltaData;
                 const index = this.gamedata.loops.current.recorded.indexOf(c);
-                this.gamedata.loops.current.dataDelta+=c.deltaData;
+                DataController.awardData(c.deltaData, true);
                 this.gamedata.loops.current.recorded[index].consumed = true;
             }
         } else {
@@ -167,8 +179,15 @@ class LoopController extends Controller {
         const occursAt = 
             events[events.length - 1].occursAt 
             + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+
+
+        const wrapped = {occursAt}
+        for (const hook of this.hooks.onEventRoll) {
+                hook(this.gamedata, wrapped);
+        }
+
         this.gamedata.loops.current.events.push({
-            occursAt,
+            occursAt: wrapped.occursAt,
             payload: 'Observation',
         });
         this.toRender.push(occursAt);

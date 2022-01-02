@@ -1,21 +1,50 @@
+import buildings from "../Models/Buildings";
 import events from "../Models/Events";
 import { Gamedata, gamedata } from "../Storage/gamedata";
 import { Log, logs, pushLog } from "../Storage/logs";
+import { Hooks, hooks } from "../Storage/loopHooks";
 import initializeController from "../Tools/initializeController";
 import { Controller } from "./Support/Controller";
 
 class DataController extends Controller {
     protected wrapped = [
         {key: 'gamedata', source: gamedata},
+        {key: 'hooks', source: hooks},
     ];
     private gamedata!: Gamedata;
+    private hooks!: Hooks;
 
-    public awardData(baseline: number): number
-    {
-        this.gamedata.data.amount+=baseline;
-        this.gamedata.loops.current.dataDelta+=baseline;
+    public awardData(amount: number, muteHooks: boolean = false): number
+    {   
+        let value = {value: amount};
+        if (!muteHooks) {
+            for (const hook of this.hooks.onIncome) {
+                hook(this.gamedata, value);
+            }
+        }
+        this.gamedata.data.amount+=value.value;
+        this.gamedata.loops.current.dataDelta+=value.value;
         gamedata.set(this.gamedata);
-        return baseline;
+        return value.value;
+    }
+
+    public purchaseBuilding(ref: string): void
+    {
+        const building = buildings.filter(b => b.name === ref && b.unlocksAt(this.gamedata))[0]
+        if (!building) {throw 'eeeeeeeh'}
+        if (this.gamedata.data.amount < building.price) {return;} //todo popups
+        if (building.onetime && (building.name in this.gamedata.loops.current.buildings)) {return;}
+        this.gamedata.data.amount -= building.price;
+        if (!(building.name in this.gamedata.loops.current.buildings)) {
+            this.gamedata.loops.current.buildings[building.name] = 0;
+        }
+        this.gamedata.loops.current.buildings[building.name]++;
+        building.onActive();
+        gamedata.set(this.gamedata);
+    }
+
+    public getPurchaseableBuildings() {
+        return buildings.filter(b => (!b.onetime ? true : !(b.name in this.gamedata.loops.current.buildings)) && b.unlocksAt(this.gamedata));
     }
 }
 
