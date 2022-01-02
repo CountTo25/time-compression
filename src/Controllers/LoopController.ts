@@ -6,6 +6,7 @@ import { toRender } from "../Storage/timeline";
 import initializeController from "../Tools/initializeController";
 import DataController from "./DataController";
 import EventController from "./EventController";
+import StoredLoopController from "./StoredLoopController";
 import { Controller } from "./Support/Controller";
 
 class LoopController extends Controller {
@@ -31,20 +32,7 @@ class LoopController extends Controller {
 
     public discardLoop(): void 
     {
-        this.gamedata.loops.current = {
-            fresh: true,
-            paused: false,
-            dataDelta: 0,
-            running: false,
-            progress: {
-                time: 0,
-                next: 0,
-            },
-            length: 0,
-            buildings: {},
-            events: [],
-            recorded: [],
-        };
+        this.freshLoopData();
         this.rehook();
         gamedata.set(this.gamedata);
     }
@@ -80,18 +68,26 @@ class LoopController extends Controller {
         }
     }
 
+    private refereshRender(): void
+    {
+        toRender.set([
+            ...this.gamedata.loops.current.recorded.map(pb => pb.at), 
+            ...this.gamedata.loops.current.events.map(e => e.occursAt)
+        ]);
+    }
+
     private startLoop(): void
     {
         this.gamedata.loops.current.running = true;
         this.gamedata.loops.current.progress.time = 0;
         if (!this.gamedata.loops.current.fresh) {
             this.gamedata.loops.current.paused = false;
-            toRender.set(this.gamedata.loops.current.recorded.map(pb => pb.at));
             this.gamedata.loops.current.recorded = this.gamedata.loops.current.recorded
                 .map(r => {r.consumed = false; return r})
         } else {
             this.seedEvents();
         }
+        this.refereshRender();
         this.restartInterval();
         this.rehook();
         gamedata.set(this.gamedata);
@@ -155,10 +151,6 @@ class LoopController extends Controller {
         gamedata.set(this.gamedata)
     }
 
-    public record() {
-        
-    }
-
     private restartInterval(): void {
         if (this.loopTicker !== null) {
             clearInterval(this.loopTicker);
@@ -170,6 +162,12 @@ class LoopController extends Controller {
                 subscribed()
             }
         }, 100)
+    }
+
+    public reboot(): void 
+    {
+        this.restartInterval();
+        this.rehook();
     }
 
     private addEvent(): void
@@ -194,9 +192,40 @@ class LoopController extends Controller {
         toRender.set(this.toRender);
     }
 
-    public getRenderableUpgrades() 
-    {
+    public storeLoop() {
+        const copy = this.gamedata.loops.current;
+        if (this.gamedata.loops.maxCompleted <= this.gamedata.loops.completed.length) {return;}
+        const totalIncome = this.gamedata.loops.current.recorded.map(r => r.deltaData);
+        let bakedIncome = 0;
+        if (totalIncome.length > 0) {
+            bakedIncome = totalIncome.reduce((a,b) => a+=b);
+        }
+        const duration = this.gamedata.loops.current.length;
+        const id = this.gamedata.loops.current.increment;
+        this.gamedata.loops.completed.push({...copy, bakedIncome, duration});
+        this.freshLoopData();
+        this.rehook();
+        gamedata.set(this.gamedata);
+        hooks.set(this.hooks);
+        StoredLoopController.bootLoop(id);
+    }
 
+    private freshLoopData() {
+        this.gamedata.loops.current = {
+            increment: this.gamedata.loops.current.increment + 1,
+            fresh: true,
+            paused: false,
+            dataDelta: 0,
+            running: false,
+            progress: {
+                time: 0,
+                next: 0,
+            },
+            length: 0,
+            buildings: {},
+            events: [],
+            recorded: [],
+        };
     }
 }
 

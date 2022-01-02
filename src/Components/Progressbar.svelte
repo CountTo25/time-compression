@@ -5,13 +5,14 @@
     export let current: number = 71;
     export let max: number = 200;
     export let tip: string = 'test';
+    export let displayCurrent: string = null;
+    export let displayMax: string = null;
     export let mute = false;
     let mounted: boolean = false;
 
     onMount(() => mounted = true);
 
     $:percent = ((current/max)*100);
-    $:displayPercent = percent % 1 !== 0 ? percent.toFixed(2) : percent;
     $:nodes = ~~(percent/5);
 </script>
 
@@ -21,20 +22,13 @@
         {tip}
     </div>
     <div class='col-6 px-0 text-end'>
-        {current} / {max}
+        {displayCurrent ?? current} / {displayMax ?? max}
     </div>
 </div>
 {/if}
 <div class='progressbar px-0'>
     <div class='pre'/>
     <div class='root'>
-        <div class='label'>
-            {#if !mute}
-            <span class='label-container'>
-                    {displayPercent} %
-            </span>
-            {/if}
-        </div>
         {#each Array(nodes) as _, index}
             <div in:fade={{duration: mounted ? 250 : 0 }} class='node'/>
         {/each}

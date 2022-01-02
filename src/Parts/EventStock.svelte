@@ -3,7 +3,8 @@
     import EventController from "../Controllers/EventController";
     import RecordDot from "../Components/RecordDot.svelte";
 
-    $:totalIncome = $gamedata.loops.current.fresh ? 0 : $gamedata.loops.current.recorded.map(r => r.deltaData).reduce((r,x) => r+=x);
+    $: mapped = $gamedata.loops.current.recorded.map(r => r.deltaData)
+    $:totalIncome = $gamedata.loops.current.fresh ? 0 : mapped.length > 0 ? mapped.reduce((r,x) => r+=x) : 0;
     $:perSecond = $gamedata.loops.current.fresh ? 0 : totalIncome / ($gamedata.loops.current.length / 1000);
 </script>
 
@@ -20,5 +21,4 @@
         <div>Total events: {$gamedata.loops.current.recorded.length}</div>
         <div>Income: {totalIncome} ({perSecond.toFixed(2)}/s)</div>
     {/if}
-   
 </div>

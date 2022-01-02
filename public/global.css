@@ -3,7 +3,7 @@
 	font-family: 'Montserrat';
 	font-style: normal;
 	font-weight: 400;
-	src: url('/fonts/Montserrat-Regular.ttf')
+	src: url('fonts/Montserrat-Regular.ttf')
 }
 
 @font-face {
@@ -47,6 +47,8 @@ body {
 	--color-font: rgb(207, 214, 230); 
 	--color-bg-depth-1: #2c3548;
 	--color-bg-highlight: #1f2635;
+
+	--color-panel: #151625;
 
 	background-color: var(--color-bg);
 	color: var(--color-font);

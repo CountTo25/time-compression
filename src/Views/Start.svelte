@@ -43,7 +43,7 @@ function shouldShakeRender() {
                     on:click={()=>(LoopController.getCurrentMainAction())()}
                 >{startButtonText}</Button>
                 <Button
-                    on:click={()=>LoopController.discardLoop()}
+                    on:click={()=>LoopController.storeLoop()}
                     inactive={$gamedata.loops.current.fresh}
                 >Store loop
                 </Button>
@@ -70,10 +70,10 @@ function shouldShakeRender() {
     </div>
     <div class='col-12 px-0 text-center'>
         {#if !$gamedata.loops.current.running}
-            <div out:fade={{duration: 50}}>
+            <div>
             </div>
         {:else}
-            <div class='timeline text-start' in:fade={{delay: 50, duration: 200}}>
+            <div class='timeline text-start'>
                 <div>
                     {#each $toRender as occursAt}
                         <FillableDot {occursAt}/>
