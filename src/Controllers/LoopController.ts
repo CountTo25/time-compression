@@ -1,4 +1,5 @@
 import buildings from "../Models/Buildings";
+import EventDispatchPipeline from "../Pipelines/EventDispatchPipeline";
 import { Gamedata, gamedata } from "../Storage/gamedata";
 import { Hooks, hooks } from "../Storage/loopHooks";
 import tickers, {clearTickers, pushListener} from "../Storage/tickers";
@@ -57,6 +58,7 @@ class LoopController extends Controller {
         this.gamedata.loops.current.paused = false;
         this.gamedata.loops.current.length = this.gamedata.loops.current.progress.time;
         this.rehook();
+        this.gamedata.meta.totals.loops++;
         gamedata.set(this.gamedata);
     }
 
@@ -178,12 +180,14 @@ class LoopController extends Controller {
             events[events.length - 1].occursAt 
             + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
 
-
         const payload = EventController.getRandomEvent().name;
         const wrapped = {occursAt}
         for (const hook of this.hooks.onEventRoll) {
-                hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
+            hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
         }
+
+        const pipe = new EventDispatchPipeline();
+        wrapped.occursAt = pipe.build([]).run(wrapped.occursAt);
 
         this.gamedata.loops.current.events.push({
             occursAt: wrapped.occursAt,

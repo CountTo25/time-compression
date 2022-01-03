@@ -26,15 +26,22 @@ export const gamedata: Writable<Gamedata> = writable({
         completed: [],
         maxCompleted: 3,
     },
-
-    data: {
-        amount: 0,
+    datasets: {amount: 0},
+    cycles: {
+        current: {
+            totalData: 0,
+        }
     },
+
+    data: {amount: 0},
     meta: {
         lastSavedAt: moment.now(),
         records: {
             longestLoop: 0,
             eventsPerLoop: 0,
+        },
+        totals: {
+            loops: 0,
         }
     }
 });
@@ -56,8 +63,25 @@ export type Gamedata = {
         amount: number,
     },
 
+    datasets: {
+        amount: number,
+    }
+
+    cycles: {
+        current: {
+            totalData: number,
+        }
+    },
+
     meta: {
         lastSavedAt: number,
+        records: {
+            longestLoop: number,
+            eventsPerLoop: number,
+        }
+        totals: {
+            loops: number,
+        }
     }
 }
 
@@ -85,6 +109,5 @@ type LoopData = {
 }
 
 type StoredLoop = LoopData & {bakedIncome: number, duration: number}
-
 type OccuredEvent = Event & {message: string}
 type PlaybackEvent = {at: number, message: string, deltaData: number, consumed: boolean}

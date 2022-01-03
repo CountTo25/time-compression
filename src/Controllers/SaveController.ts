@@ -22,12 +22,10 @@ class SaveController extends Controller {
         if (!('__tcsave' in localStorage)) {
             return;
         }
-        console.log(this.gamedata);
         this.gamedata = deepmerge(this.gamedata, JSON.parse(localStorage.__tcsave));
         gamedata.set(this.gamedata);
         LoopController.reboot();
         for (const loop of this.gamedata.loops.completed) {
-            console.log('booted?');
             StoredLoopController.bootLoop(loop.increment);
         }
     }

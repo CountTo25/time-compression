@@ -24,6 +24,7 @@ class DataController extends Controller {
         }
         this.gamedata.data.amount+=value.value;
         this.gamedata.loops.current.dataDelta+=value.value;
+        this.gamedata.cycles.current.totalData+=value.value;
         gamedata.set(this.gamedata);
         return value.value;
     }

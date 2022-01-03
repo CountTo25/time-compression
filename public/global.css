@@ -20,7 +20,19 @@
 	src: url('fonts/Oswald.ttf')
 }
 
+@font-face {
+	font-family: 'Space Moni';
+	font-style: normal;
+	font-weight: 400;
+	src: url('fonts/SpaceMono-Regular.ttf')
+}
+
 * {box-sizing: border-box;}
+
+
+.mono {
+	font-family: 'Space Mono', monospace;
+}
 
 .mnt {
 	font-family: 'Montserrat', sans-serif;

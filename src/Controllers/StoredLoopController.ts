@@ -26,7 +26,9 @@ class StoredLoopController extends Controller {
             this.gamedata.loops.completed[index].progress.time+=100;
             if (this.gamedata.loops.completed[index].progress.time >= this.gamedata.loops.completed[index].duration) {
                 this.gamedata.loops.completed[index].progress.time = 0;
-                this.gamedata.data.amount += this.gamedata.loops.completed[index].bakedIncome;
+                const income = this.gamedata.loops.completed[index].bakedIncome;
+                this.gamedata.data.amount += income;
+                this.gamedata.cycles.current.totalData+= income;
                 gamedata.set(this.gamedata);
             }
         }, 100)})

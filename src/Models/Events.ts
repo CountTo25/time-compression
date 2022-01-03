@@ -12,6 +12,7 @@ const events: EventModel[] = [
             'By observing this cycle\'s flow, you obtained more data'
         ],
         unlocksAt: (gd) => true,
+        weight: 5,
     },
     {
         name: 'Oddity',
@@ -21,6 +22,7 @@ const events: EventModel[] = [
             'This iteration produced unreadable data. Throwing it away to keep database safe',
         ],
         unlocksAt: (gd) => true,
+        weight: 1,
     },
     {
         name: 'Acceleration',
@@ -28,7 +30,8 @@ const events: EventModel[] = [
         messages: [
             'Your interferience with this timeflow caused event occurrence to speed up'
         ],
-        unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings
+        unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings,
+        weight: 2,
     }
 ];
 
@@ -41,4 +44,5 @@ type EventModel = {
     effect: ()=>number,
     messages: string[],
     unlocksAt: (gd: Gamedata) => boolean,
+    weight: number,
 }

@@ -58,7 +58,8 @@ class EventController extends Controller {
 
     public getRandomEvent() {
         const rollable = events.filter(e => e.unlocksAt(this.gamedata));
-        return rollable[Math.floor(rollable.length * Math.random())];
+        const weighted = rollable.map(r => Array(r.weight).fill(r)).flat()
+        return weighted[Math.floor(weighted.length * Math.random())];
     }
 
     public shift(amount: number) {

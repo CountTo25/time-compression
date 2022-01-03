@@ -9,7 +9,7 @@ import moment from "moment";
 const nav = [
     {name: 'Flow', condition: (gd: Gamedata) => true, to: '/'},
     {name: 'Loops', condition: (gd: Gamedata) => gd.loops.completed.length > 0, to: '/loops'},
-    {name: 'Database', condition: (gd: Gamedata) => gd.loops.completed.length >= 3, to: '/database'}
+    {name: 'Time Machine', condition: (gd: Gamedata) => gd.loops.completed.length >= 3, to: '/machine'}
 ];
 
 let renderable = [];

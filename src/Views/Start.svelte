@@ -52,12 +52,15 @@ function shouldShakeRender() {
                 <div class='col-6 text-center'>
                     {#if $gamedata.loops.current.running}
                         <div>
-                            Time elapsed: {TimeController.toPrintable($gamedata.loops.current.progress.time)}
+                            Time elapsed: 
+                            <span class='mono'>
+                                {TimeController.toPrintable($gamedata.loops.current.progress.time)}
                             {#if !$gamedata.loops.current.fresh}
                                 / {TimeController.toPrintable($gamedata.loops.current.length)}
                             {/if}
+                            </span>
                         </div>
-                        <div>Next event: {nextEvent}</div>
+                        <div>Next event: <span class='mono'>{nextEvent}</span></div>
                     {:else}
                         Loop not started yet
                     {/if}
