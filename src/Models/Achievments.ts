@@ -5,10 +5,9 @@ import { tap } from "../Tools/tap";
 
 const modifications: AchievmentModel[] = [
     {
-        name: 'Compression engine',
-        price: 100,
-        description: 'Time compression engine that shortens timespan between various events occuring in the world<br>Reduces gaps in time between events by 10%',
-        unlocksAt: (gd) => gd.meta.records.eventsPerLoop > 20,
+        name: 'Out of time',
+        description: 'Finish your first time loop',
+        unlocksAt: (gd) => gd.meta.totals.loops > 0,
     },
 ]
   

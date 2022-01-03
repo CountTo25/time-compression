@@ -1,5 +1,18 @@
 <script>
 import Button from "../Components/Button.svelte";
+import DatasetController from "../Controllers/DatasetController";
+import TimeMachineController from "../Controllers/TimeMachineController";
+import modifications from "../Models/Modifications";
+import { gamedata } from "../Storage/gamedata";
+
+let nextReboot = 0;
+let dataToNextReboot = 0;
+let renderableModifications = TimeMachineController.getModifications();
+$:$gamedata,(() => {
+    nextReboot = DatasetController.getNextResetDatasets();
+    dataToNextReboot = DatasetController.getDataToNext();
+    renderableModifications = TimeMachineController.getModifications();
+})()
 
 </script>
 <div class='row'>
@@ -20,19 +33,40 @@ import Button from "../Components/Button.svelte";
                 Datasets compiled on reboot:
             </div>
             <div class='title text-center'>
-                0
+                {nextReboot}
             </div>
             <div class='explanation text-center mt-2'>
-                Total data obtained until next dataset: 200 (current: 0)
+                Total data obtained until next dataset: {dataToNextReboot} (current: {$gamedata.cycles.current.totalData})
             </div>
             <div class='text-center mt-3'>
-                <Button mw={true}>Compile</Button>
+                <Button on:click={()=>TimeMachineController.reset()} inactive={nextReboot === 0} mw={true}>Compile</Button>
             </div>
         </div>
     </div>
     <div class='col-8'>
         <div class='panel'>
             <div class='title text-center'>Modifications</div>
+            <div class='title text-center'>Owned datasets: {$gamedata.datasets.amount}</div>
+            <div class='row px-0'>
+                
+            {#each renderableModifications as modification}
+                <div class='col-4 wrap-mod'>
+                    <div class='oswld text-center'>{modification.name}</div>
+                    <div class='fs-100'>{modification.description}</div>
+                    {#if TimeMachineController.isModificationOwned(modification.name)}
+                        <div class='text-center oswld'>Owned</div>
+                    {:else}
+                        <div class='text-center oswld mt-1'>required datasets: {modification.price}</div>
+                        <div class='text-center'>
+                            <Button 
+                                mw={true} 
+                                on:click={()=>TimeMachineController.buyModification(modification.name)}
+                            >buy</Button>
+                        </div>
+                    {/if}
+                </div>
+            {/each}
+            </div>
         </div>
     </div>
 </div>
@@ -46,5 +80,10 @@ import Button from "../Components/Button.svelte";
 
     .explanation {
         font-weight: 100;
+    }
+
+    .wrap-mod {
+        padding: 5px;
+        border: 2px solid white;
     }
 </style>

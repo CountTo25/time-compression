@@ -34,16 +34,25 @@ class StoredLoopController extends Controller {
         }, 100)})
     }
 
+    public clearLoops() {
+        for (const ticker of this.loopTicker) {
+            for (const key of Object.keys(ticker)) {
+                clearInterval(ticker[key]);
+            }
+        }
+        this.loopTicker = [];
+    }
+
     public discardLoop(id: number): void
     {
         if (!(this.gamedata.loops.completed.map(c => c.increment).includes(id))) {return;}
         const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
-        this.gamedata.loops.completed.splice(index, 1);
-        //@ts-ignore
-        clearInterval(this.loopTicker[index][id]);
-
-        console.log(this.loopTicker);
+        this.gamedata.loops.completed.splice(index, 1);        
+        this.clearLoops();
         delete this.loopTicker[id];
+        for (const l of this.gamedata.loops.completed) {
+            this.bootLoop(l.increment);
+        }
         gamedata.set(this.gamedata);
     }
 }

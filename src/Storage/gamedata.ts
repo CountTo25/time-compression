@@ -33,6 +33,10 @@ export const gamedata: Writable<Gamedata> = writable({
         }
     },
 
+    timeMachine: {
+        modifications: [],
+    },
+
     data: {amount: 0},
     meta: {
         lastSavedAt: moment.now(),
@@ -42,7 +46,8 @@ export const gamedata: Writable<Gamedata> = writable({
         },
         totals: {
             loops: 0,
-        }
+        },
+        triggers: [],
     }
 });
 
@@ -73,6 +78,10 @@ export type Gamedata = {
         }
     },
 
+    timeMachine: {
+        modifications: string[]
+    },
+
     meta: {
         lastSavedAt: number,
         records: {
@@ -82,6 +91,7 @@ export type Gamedata = {
         totals: {
             loops: number,
         }
+        triggers: string[],
     }
 }
 

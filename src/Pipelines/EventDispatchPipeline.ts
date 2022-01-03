@@ -1,20 +1,23 @@
-export default class EventDispatchPipeline {
+import Pipeline from "./Pipeline";
+
+export default class EventDispatchPipeline extends Pipeline
+{
     //public work()
 
-    private members: EventDispatchPipeWorker[] = [];
-
-    public build(from: EventDispatchPipeWorker[]): this
-    {
-        this.members = from;   
-        return this;
+    public diff!: number; 
+    private members: Pipeable[] = [];
+    public pushMember(_new: Pipeable) {
+        this.members.push(_new);
     }
 
     public run(diff: number): number {
+        this.diff = diff;
         for (const pipe of this.members) {
-            diff = pipe(diff)
+            pipe(this);
         }
-        return diff;
+        return this.diff;
     }
 }
 
 type EventDispatchPipeWorker = (number) => number
+type Pipeable = (_new: EventDispatchPipeline) => EventDispatchPipeline

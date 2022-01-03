@@ -9,6 +9,7 @@ import DataController from "./DataController";
 import EventController from "./EventController";
 import StoredLoopController from "./StoredLoopController";
 import { Controller } from "./Support/Controller";
+import TimeMachineController from "./TimeMachineController";
 
 class LoopController extends Controller {
     protected wrapped = [
@@ -99,7 +100,14 @@ class LoopController extends Controller {
     {
         const count = 5;
         for (let i = 0; i<count; i++) {
-            const occursAt = (i+1)*1000; //1s per each +1 to offset
+            let occursAt = (i+1)*1000;
+            const pipe = new EventDispatchPipeline();
+            for (const mod of TimeMachineController.getOwnedModifications()) {
+                if (EventDispatchPipeline === mod.turnsOnAt) {
+                    pipe.pushMember(mod.effect);
+                }
+            }
+            occursAt = pipe.run(occursAt);
             const payload = EventController.getRandomEvent().name;
             this.gamedata.loops.current.events.push({occursAt,payload})
             this.toRender.push(occursAt);
@@ -187,7 +195,9 @@ class LoopController extends Controller {
         }
 
         const pipe = new EventDispatchPipeline();
-        wrapped.occursAt = pipe.build([]).run(wrapped.occursAt);
+        let diff = wrapped.occursAt - this.gamedata.loops.current.progress.time;
+        diff = pipe.run(diff);
+        wrapped.occursAt = //pipe.pushMember().run(wrapped.occursAt);
 
         this.gamedata.loops.current.events.push({
             occursAt: wrapped.occursAt,

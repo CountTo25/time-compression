@@ -4,16 +4,17 @@ import {fade} from "svelte/transition";
 import { Gamedata, gamedata } from "./Storage/gamedata";
 import Button from "./Components/Button.svelte";
 import SaveController from "./Controllers/SaveController";
+import TriggerController from "./Controllers/TriggerController";
 import moment from "moment";
 
 const nav = [
-    {name: 'Flow', condition: (gd: Gamedata) => true, to: '/'},
-    {name: 'Loops', condition: (gd: Gamedata) => gd.loops.completed.length > 0, to: '/loops'},
-    {name: 'Time Machine', condition: (gd: Gamedata) => gd.loops.completed.length >= 3, to: '/machine'}
+    {name: 'Flow', condition: ()=>TriggerController.try('flow', (gd: Gamedata)=>true), to: '/'},
+    {name: 'Loops', condition: ()=>TriggerController.try('loopsUnlocked', (gd: Gamedata) => gd.loops.completed.length > 0), to: '/loops'},
+    {name: 'Time Machine', condition: ()=>TriggerController.try('tmUnlocked', (gd: Gamedata) => gd.loops.completed.length >= 3), to: '/machine'}
 ];
 
 let renderable = [];
-$:$gamedata,(()=>renderable = nav.filter(n => n.condition($gamedata)))()
+$:$gamedata,(()=>renderable = nav.filter(n => n.condition()))()
 
 </script>
 <div class='px-3 my-auto header text-center'>

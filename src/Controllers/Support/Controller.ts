@@ -8,6 +8,10 @@ export abstract class Controller {
             storage.source.subscribe(data => this[storage.key] = data);
         })
     }
+
+    protected ____sync(name: string) {
+        this.wrapped.find(w => w.key === name).source.set(this[name]);
+    }
 }
 
 
