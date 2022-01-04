@@ -194,13 +194,18 @@ class LoopController extends Controller {
             hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
         }
 
-        const pipe = new EventDispatchPipeline();
         let diff = wrapped.occursAt - this.gamedata.loops.current.progress.time;
+
+        const pipe = new EventDispatchPipeline();
+        for (const mod of TimeMachineController.getOwnedModifications()) {
+            if (EventDispatchPipeline === mod.turnsOnAt) {
+                pipe.pushMember(mod.effect);
+            }
+        }
         diff = pipe.run(diff);
-        wrapped.occursAt = //pipe.pushMember().run(wrapped.occursAt);
 
         this.gamedata.loops.current.events.push({
-            occursAt: wrapped.occursAt,
+            occursAt: this.gamedata.loops.current.progress.time + diff,
             payload,
         });
         this.toRender.push(occursAt);

@@ -7691,14 +7691,18 @@ var app = (function () {
             for (const hook of this.hooks.onEventRoll) {
                 hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
             }
-            const pipe = new EventDispatchPipeline();
             let diff = wrapped.occursAt - this.gamedata.loops.current.progress.time;
+            const pipe = new EventDispatchPipeline();
+            for (const mod of TimeMachineController$1.getOwnedModifications()) {
+                if (EventDispatchPipeline === mod.turnsOnAt) {
+                    pipe.pushMember(mod.effect);
+                }
+            }
             diff = pipe.run(diff);
-            wrapped.occursAt = //pipe.pushMember().run(wrapped.occursAt);
-                this.gamedata.loops.current.events.push({
-                    occursAt: wrapped.occursAt,
-                    payload,
-                });
+            this.gamedata.loops.current.events.push({
+                occursAt: this.gamedata.loops.current.progress.time + diff,
+                payload,
+            });
             this.toRender.push(occursAt);
             toRender.set(this.toRender);
         }
