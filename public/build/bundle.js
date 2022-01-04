@@ -1108,7 +1108,9 @@ var app = (function () {
                 });
                 return h;
             })),
-            description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`
+            description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`,
+            toAuto: 5,
+            explainedCondition: 'whenever you have more than 10 data on hands'
         },
         {
             name: 'Careful observation',
@@ -1121,8 +1123,27 @@ var app = (function () {
                 });
                 return h;
             })),
-            description: 'Use your knowledge on to predict what actions lead to which events'
+            description: 'Use your knowledge on to predict what actions lead to which events',
+            toAuto: 5,
+            explainedCondition: 'when you have more than 5 data'
         },
+        {
+            name: 'Probability manipulator',
+            unlocksAt: (gd) => gd.loops.current.progress.time > 10000,
+            onetime: true,
+            price: 15,
+            onActive: () => (hooks.update(h => {
+                h.onIncome.push((gd, income) => {
+                    if (Math.random() > 0.5) {
+                        income.value *= 2;
+                    }
+                });
+                return h;
+            })),
+            description: 'Manipulate probabilities to allow any data income to be doubled with 50% chance',
+            toAuto: 10,
+            explainedCondition: 'once timer reached 10 seconds'
+        }
     ];
 
     var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -6826,8 +6847,15 @@ var app = (function () {
         },
         datasets: { amount: 0 },
         cycles: {
+            total: 0,
             current: {
                 totalData: 0,
+            }
+        },
+        knowledge: {
+            buildings: {
+                purchased: {},
+                auto: [],
             }
         },
         timeMachine: {
@@ -6917,6 +6945,10 @@ var app = (function () {
                 this.gamedata.loops.current.buildings[building.name] = 0;
             }
             this.gamedata.loops.current.buildings[building.name]++;
+            if (!(building.name in this.gamedata.knowledge.buildings.purchased)) {
+                this.gamedata.knowledge.buildings.purchased[building.name] = 0;
+            }
+            this.gamedata.knowledge.buildings.purchased[building.name]++;
             building.onActive();
             gamedata.set(this.gamedata);
         }
@@ -6925,6 +6957,456 @@ var app = (function () {
         }
     }
     var DataController$1 = initializeController(DataController);
+
+    class Pipeline {
+    }
+
+    class EventDispatchPipeline extends Pipeline {
+        constructor() {
+            //public work()
+            super(...arguments);
+            this.members = [];
+        }
+        pushMember(_new) {
+            this.members.push(_new);
+        }
+        run(diff) {
+            this.diff = diff;
+            for (const pipe of this.members) {
+                pipe(this);
+            }
+            return this.diff;
+        }
+    }
+
+    const tickers = writable([]);
+    function clearTickers() {
+        tickers.set([]);
+    }
+    function pushListener(_new) {
+        tickers.update(tickers => [...tickers, _new]);
+    }
+
+    const toRender = writable([]);
+
+    class StoredLoopController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'tickers', source: tickers },
+                { key: 'toRender', source: toRender },
+                { key: 'hooks', source: hooks },
+            ];
+            this.loopTicker = [];
+        }
+        bootLoop(id) {
+            if (!(this.gamedata.loops.completed.map(c => c.increment).includes(id))) {
+                return;
+            }
+            const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
+            this.loopTicker.push({ [id]: setInterval(() => {
+                    this.gamedata.loops.completed[index].progress.time += 100;
+                    if (this.gamedata.loops.completed[index].progress.time >= this.gamedata.loops.completed[index].duration) {
+                        this.gamedata.loops.completed[index].progress.time = 0;
+                        const income = this.gamedata.loops.completed[index].bakedIncome;
+                        this.gamedata.data.amount += income;
+                        this.gamedata.cycles.current.totalData += income;
+                        gamedata.set(this.gamedata);
+                    }
+                }, 100) });
+        }
+        clearLoops() {
+            for (const ticker of this.loopTicker) {
+                for (const key of Object.keys(ticker)) {
+                    clearInterval(ticker[key]);
+                }
+            }
+            this.loopTicker = [];
+        }
+        discardLoop(id) {
+            if (!(this.gamedata.loops.completed.map(c => c.increment).includes(id))) {
+                return;
+            }
+            const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
+            this.gamedata.loops.completed.splice(index, 1);
+            this.clearLoops();
+            delete this.loopTicker[id];
+            for (const l of this.gamedata.loops.completed) {
+                this.bootLoop(l.increment);
+            }
+            gamedata.set(this.gamedata);
+        }
+    }
+    var StoredLoopController$1 = initializeController(StoredLoopController);
+
+    const modifications = [
+        {
+            name: 'Compression of time',
+            price: 1,
+            description: 'Compress timelines to make events more frequent. Reduces delay between new events by 5%',
+            unlocksAt: (gd) => true,
+            turnsOnAt: EventDispatchPipeline,
+            effect: (pipe) => pipe.diff *= 0.95,
+        },
+        {
+            name: 'Compression engine',
+            price: 20,
+            description: 'Time compression engine that shortens timespan between various events occuring in the world<br>Reduces gaps in time between events by 10%',
+            unlocksAt: (gd) => gd.meta.records.eventsPerLoop > 20,
+            turnsOnAt: EventDispatchPipeline,
+            effect: (pipe) => pipe.diff *= 0.9
+        },
+    ];
+
+    function deepmerge (target, source) {
+        console.log(target);
+        // Iterate through `source` properties and if an `Object` set property to merge of `target` and `source` properties
+        for (const key of Object.keys(source)) {
+          if (source[key] instanceof Object && target[key] !== undefined) Object.assign(source[key], deepmerge(target[key], source[key]));
+        }
+        // Join `target` and modified `source`
+        Object.assign(target || {}, source);
+        return target
+      }
+
+      //https://gist.github.com/ahtcx/0cd94e62691f539160b32ecda18af3d6
+
+    class SaveController$2 extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'hooks', source: hooks },
+            ];
+        }
+        getDataToNext() {
+            const current = this.getNextResetDatasets();
+            let total = 0;
+            for (let i = 0; i < current + 1; i++) {
+                total += Math.floor((200 * (i + 1)) * (1.1 ** (i + 1)));
+            }
+            return total;
+        }
+        getNextResetDatasets() {
+            return this.datasetFormula(this.gamedata.cycles.current.totalData);
+        }
+        datasetFormula(from) {
+            let calc = from;
+            let sets = 0;
+            while (calc > 0) {
+                calc -= Math.floor((200 * (sets + 1)) * (1.1 ** (sets + 1)));
+                sets++;
+            }
+            if (sets > 0) {
+                sets--;
+            } //TOOD: elegant
+            return sets;
+        }
+    }
+    var DatasetController = initializeController(SaveController$2);
+
+    class SaveController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'hooks', source: hooks },
+            ];
+        }
+        load() {
+            if (!('__tcsave' in localStorage)) {
+                return;
+            }
+            this.gamedata = deepmerge(this.gamedata, JSON.parse(localStorage.__tcsave));
+            gamedata.set(this.gamedata);
+            LoopController$1.reboot();
+            for (const loop of this.gamedata.loops.completed) {
+                StoredLoopController$1.bootLoop(loop.increment);
+            }
+        }
+        save() {
+            this.gamedata.meta.lastSavedAt = moment.now();
+            localStorage.__tcsave = JSON.stringify(this.gamedata);
+            gamedata.set(this.gamedata);
+        }
+    }
+    var SaveController$1 = initializeController(SaveController);
+
+    class TimeMachineController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+            ];
+        }
+        getModifications() {
+            return modifications.filter(m => m.unlocksAt(this.gamedata));
+        }
+        isModificationOwned(name) {
+            return this.gamedata.timeMachine.modifications.includes(name);
+        }
+        buyModification(name) {
+            var _a;
+            if (this.gamedata.timeMachine.modifications.includes(name)) {
+                return;
+            }
+            const mod = (_a = modifications.find(m => m.name === name)) !== null && _a !== void 0 ? _a : null;
+            if (mod.price > this.gamedata.datasets.amount) {
+                return;
+            }
+            this.gamedata.datasets.amount -= mod.price;
+            this.gamedata.timeMachine.modifications.push(mod.name);
+            gamedata.set(this.gamedata);
+        }
+        getOwnedModifications() {
+            return modifications.filter(m => this.gamedata.timeMachine.modifications.includes(m.name));
+        }
+        reset() {
+            const toAward = DatasetController.getNextResetDatasets();
+            this.gamedata.datasets.amount += toAward;
+            this.gamedata.cycles.current.totalData = 0;
+            this.gamedata.cycles.total++;
+            this.gamedata.data.amount = 0;
+            this.gamedata.events.stored = [];
+            this.gamedata.loops.completed = [];
+            this.gamedata.loops.current = {
+                increment: this.gamedata.loops.current.increment,
+                fresh: true,
+                paused: false,
+                dataDelta: 0,
+                running: false,
+                progress: {
+                    time: 0,
+                    next: 0,
+                },
+                length: 0,
+                events: [],
+                recorded: [],
+                buildings: {},
+            };
+            gamedata.set(this.gamedata);
+            StoredLoopController$1.clearLoops();
+            SaveController$1.save();
+        }
+    }
+    var TimeMachineController$1 = initializeController(TimeMachineController);
+
+    class LoopController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'tickers', source: tickers },
+                { key: 'toRender', source: toRender },
+                { key: 'hooks', source: hooks },
+            ];
+            this.loopTicker = null;
+        }
+        toggleLoop() {
+            let running = this.gamedata.loops.current.running;
+            if (running) {
+                this.recordLoop();
+                return;
+            }
+            this.startLoop();
+        }
+        discardLoop() {
+            this.freshLoopData();
+            this.rehook();
+            gamedata.set(this.gamedata);
+        }
+        getCurrentMainAction() {
+            if (this.gamedata.loops.current.fresh) {
+                return this.toggleLoop.bind(this);
+            }
+            if (!this.gamedata.loops.current.fresh) {
+                return this.discardLoop.bind(this);
+            }
+        }
+        recordLoop() {
+            this.gamedata.loops.current.dataDelta = 0;
+            this.gamedata.loops.current.running = false;
+            this.gamedata.loops.current.events = [];
+            this.gamedata.events.stored = [];
+            this.gamedata.loops.current.fresh = false;
+            this.gamedata.loops.current.paused = false;
+            this.gamedata.loops.current.length = this.gamedata.loops.current.progress.time;
+            this.rehook();
+            this.gamedata.meta.totals.loops++;
+            gamedata.set(this.gamedata);
+        }
+        rehook() {
+            this.hooks = { onEventRoll: [], onIncome: [] };
+            hooks.set(this.hooks);
+            for (const key in this.gamedata.loops.current.buildings) {
+                buildings.filter(b => b.name === key)[0].onActive();
+            }
+        }
+        refereshRender() {
+            toRender.set([
+                ...this.gamedata.loops.current.recorded.map(pb => pb.at),
+                ...this.gamedata.loops.current.events.map(e => e.occursAt)
+            ]);
+        }
+        startLoop() {
+            this.gamedata.loops.current.running = true;
+            this.gamedata.loops.current.progress.time = 0;
+            if (!this.gamedata.loops.current.fresh) {
+                this.gamedata.loops.current.paused = false;
+                this.gamedata.loops.current.recorded = this.gamedata.loops.current.recorded
+                    .map(r => { r.consumed = false; return r; });
+            }
+            else {
+                this.autobuy();
+                this.seedEvents();
+            }
+            this.refereshRender();
+            this.restartInterval();
+            this.rehook();
+            gamedata.set(this.gamedata);
+        }
+        seedEvents() {
+            const count = 5;
+            for (let i = 0; i < count; i++) {
+                let occursAt = (i + 1) * 1000;
+                const pipe = new EventDispatchPipeline();
+                for (const mod of TimeMachineController$1.getOwnedModifications()) {
+                    if (EventDispatchPipeline === mod.turnsOnAt) {
+                        pipe.pushMember(mod.effect);
+                    }
+                }
+                occursAt = pipe.run(occursAt);
+                const payload = EventController$1.getRandomEvent().name;
+                this.gamedata.loops.current.events.push({ occursAt, payload });
+                this.toRender.push(occursAt);
+            }
+        }
+        tick() {
+            if (this.gamedata.loops.current.paused) {
+                return;
+            }
+            this.gamedata.loops.current.progress.time += 100;
+            if (!this.gamedata.loops.current.fresh) {
+                if (this.gamedata.loops.current.length <= this.gamedata.loops.current.progress.time) {
+                    this.recordLoop();
+                    this.startLoop();
+                }
+                const consumable = this.gamedata.loops.current.recorded
+                    .filter(e => this.gamedata.loops.current.progress.time >= e.at && !e.consumed);
+                for (const c of consumable) {
+                    const index = this.gamedata.loops.current.recorded.indexOf(c);
+                    DataController$1.awardData(c.deltaData, true);
+                    this.gamedata.loops.current.recorded[index].consumed = true;
+                }
+            }
+            else {
+                const passed = this.gamedata.loops.current.events
+                    .filter(e => this.gamedata.loops.current.progress.time >= e.occursAt);
+                if (passed.length > 0) {
+                    for (const evt of passed) {
+                        if (this.gamedata.events.capacity > this.gamedata.events.stored.length) {
+                            this.gamedata.events.stored.push(Object.assign(Object.assign({}, evt), { message: '123' })); //TODO: snatch log
+                        }
+                        const index = this.gamedata.loops.current.events.indexOf(evt);
+                        this.gamedata.loops.current.events.splice(index, 1);
+                        this.addEvent();
+                    }
+                }
+            }
+            gamedata.set(this.gamedata);
+        }
+        togglePause() {
+            if (!this.gamedata.loops.current.running) {
+                return;
+            }
+            this.gamedata.loops.current.paused = !this.gamedata.loops.current.paused;
+            gamedata.set(this.gamedata);
+        }
+        restartInterval() {
+            if (this.loopTicker !== null) {
+                clearInterval(this.loopTicker);
+            }
+            clearTickers();
+            pushListener(this.tick.bind(this));
+            this.loopTicker = setInterval(() => {
+                for (const subscribed of this.tickers) {
+                    subscribed();
+                }
+            }, 100);
+        }
+        autobuy() {
+            for (const building of this.gamedata.knowledge.buildings.auto) {
+                DataController$1.purchaseBuilding(building);
+            }
+        }
+        reboot() {
+            this.restartInterval();
+            this.rehook();
+        }
+        addEvent() {
+            const baseDiff = 1000; //TODO: remake formula
+            const events = this.gamedata.loops.current.events;
+            const occursAt = events[events.length - 1].occursAt
+                + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+            const payload = EventController$1.getRandomEvent().name;
+            const wrapped = { occursAt };
+            for (const hook of this.hooks.onEventRoll) {
+                hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
+            }
+            let diff = wrapped.occursAt - this.gamedata.loops.current.progress.time;
+            const pipe = new EventDispatchPipeline();
+            for (const mod of TimeMachineController$1.getOwnedModifications()) {
+                if (EventDispatchPipeline === mod.turnsOnAt) {
+                    pipe.pushMember(mod.effect);
+                }
+            }
+            diff = pipe.run(diff);
+            this.gamedata.loops.current.events.push({
+                occursAt: this.gamedata.loops.current.progress.time + diff,
+                payload,
+            });
+            this.toRender.push(occursAt);
+            toRender.set(this.toRender);
+        }
+        storeLoop() {
+            const copy = this.gamedata.loops.current;
+            if (this.gamedata.loops.maxCompleted <= this.gamedata.loops.completed.length) {
+                return;
+            }
+            const totalIncome = this.gamedata.loops.current.recorded.map(r => r.deltaData);
+            let bakedIncome = 0;
+            if (totalIncome.length > 0) {
+                bakedIncome = totalIncome.reduce((a, b) => a += b);
+            }
+            const duration = this.gamedata.loops.current.length;
+            const id = this.gamedata.loops.current.increment;
+            this.gamedata.loops.completed.push(Object.assign(Object.assign({}, copy), { bakedIncome, duration }));
+            this.freshLoopData();
+            this.rehook();
+            gamedata.set(this.gamedata);
+            hooks.set(this.hooks);
+            StoredLoopController$1.bootLoop(id);
+        }
+        freshLoopData() {
+            this.gamedata.loops.current = {
+                increment: this.gamedata.loops.current.increment + 1,
+                fresh: true,
+                paused: false,
+                dataDelta: 0,
+                running: false,
+                progress: {
+                    time: 0,
+                    next: 0,
+                },
+                length: 0,
+                buildings: {},
+                events: [],
+                recorded: [],
+            };
+        }
+    }
+    var LoopController$1 = initializeController(LoopController);
 
     const events = [
         {
@@ -6949,7 +7431,7 @@ var app = (function () {
         },
         {
             name: 'Acceleration',
-            effect: () => { EventController$1.shift(0.95); return 0; },
+            effect: () => { EventController$1.shift(0.95); LoopController$1.refereshRender(); return 0; },
             messages: [
                 'Your interferience with this timeflow caused event occurrence to speed up'
             ],
@@ -6974,7 +7456,7 @@ var app = (function () {
             if (occurstAt - current > 5000) {
                 return 100;
             }
-            if (occurstAt - current <= 0) {
+            if (occurstAt - current <= 100) {
                 return 0;
             }
             return (occurstAt - current) / 5000 * 100;
@@ -7302,449 +7784,6 @@ var app = (function () {
     	}
     }
 
-    class Pipeline {
-    }
-
-    class EventDispatchPipeline extends Pipeline {
-        constructor() {
-            //public work()
-            super(...arguments);
-            this.members = [];
-        }
-        pushMember(_new) {
-            this.members.push(_new);
-        }
-        run(diff) {
-            this.diff = diff;
-            for (const pipe of this.members) {
-                pipe(this);
-            }
-            return this.diff;
-        }
-    }
-
-    const tickers = writable([]);
-    function clearTickers() {
-        tickers.set([]);
-    }
-    function pushListener(_new) {
-        tickers.update(tickers => [...tickers, _new]);
-    }
-
-    const toRender = writable([]);
-
-    class StoredLoopController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'tickers', source: tickers },
-                { key: 'toRender', source: toRender },
-                { key: 'hooks', source: hooks },
-            ];
-            this.loopTicker = [];
-        }
-        bootLoop(id) {
-            if (!(this.gamedata.loops.completed.map(c => c.increment).includes(id))) {
-                return;
-            }
-            const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
-            this.loopTicker.push({ [id]: setInterval(() => {
-                    this.gamedata.loops.completed[index].progress.time += 100;
-                    if (this.gamedata.loops.completed[index].progress.time >= this.gamedata.loops.completed[index].duration) {
-                        this.gamedata.loops.completed[index].progress.time = 0;
-                        const income = this.gamedata.loops.completed[index].bakedIncome;
-                        this.gamedata.data.amount += income;
-                        this.gamedata.cycles.current.totalData += income;
-                        gamedata.set(this.gamedata);
-                    }
-                }, 100) });
-        }
-        clearLoops() {
-            for (const ticker of this.loopTicker) {
-                for (const key of Object.keys(ticker)) {
-                    clearInterval(ticker[key]);
-                }
-            }
-            this.loopTicker = [];
-        }
-        discardLoop(id) {
-            if (!(this.gamedata.loops.completed.map(c => c.increment).includes(id))) {
-                return;
-            }
-            const index = this.gamedata.loops.completed.indexOf(this.gamedata.loops.completed.filter(l => l.increment === id)[0]);
-            this.gamedata.loops.completed.splice(index, 1);
-            this.clearLoops();
-            delete this.loopTicker[id];
-            for (const l of this.gamedata.loops.completed) {
-                this.bootLoop(l.increment);
-            }
-            gamedata.set(this.gamedata);
-        }
-    }
-    var StoredLoopController$1 = initializeController(StoredLoopController);
-
-    const modifications = [
-        {
-            name: 'Compression of time',
-            price: 1,
-            description: 'Compress timelines to make events more frequent. Reduces delay between new events by 5%',
-            unlocksAt: (gd) => true,
-            turnsOnAt: EventDispatchPipeline,
-            effect: (pipe) => pipe.diff *= 0.95,
-        },
-        {
-            name: 'Compression engine',
-            price: 20,
-            description: 'Time compression engine that shortens timespan between various events occuring in the world<br>Reduces gaps in time between events by 10%',
-            unlocksAt: (gd) => gd.meta.records.eventsPerLoop > 20,
-            turnsOnAt: EventDispatchPipeline,
-            effect: (pipe) => pipe.diff *= 0.9
-        },
-    ];
-
-    function deepmerge (target, source) {
-        console.log(target);
-        // Iterate through `source` properties and if an `Object` set property to merge of `target` and `source` properties
-        for (const key of Object.keys(source)) {
-          if (source[key] instanceof Object && target[key] !== undefined) Object.assign(source[key], deepmerge(target[key], source[key]));
-        }
-        // Join `target` and modified `source`
-        Object.assign(target || {}, source);
-        return target
-      }
-
-      //https://gist.github.com/ahtcx/0cd94e62691f539160b32ecda18af3d6
-
-    class SaveController$2 extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'hooks', source: hooks },
-            ];
-        }
-        getDataToNext() {
-            const current = this.getNextResetDatasets();
-            let total = 0;
-            for (let i = 0; i < current + 1; i++) {
-                total += Math.floor((200 * (i + 1)) * (1.1 ** (i + 1)));
-            }
-            return total;
-        }
-        getNextResetDatasets() {
-            return this.datasetFormula(this.gamedata.cycles.current.totalData);
-        }
-        datasetFormula(from) {
-            let calc = from;
-            let sets = 0;
-            while (calc > 0) {
-                calc -= Math.floor((200 * (sets + 1)) * (1.1 ** (sets + 1)));
-                sets++;
-            }
-            if (sets > 0) {
-                sets--;
-            } //TOOD: elegant
-            return sets;
-        }
-    }
-    var DatasetController = initializeController(SaveController$2);
-
-    class SaveController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'hooks', source: hooks },
-            ];
-        }
-        load() {
-            if (!('__tcsave' in localStorage)) {
-                return;
-            }
-            this.gamedata = deepmerge(this.gamedata, JSON.parse(localStorage.__tcsave));
-            gamedata.set(this.gamedata);
-            LoopController$1.reboot();
-            for (const loop of this.gamedata.loops.completed) {
-                StoredLoopController$1.bootLoop(loop.increment);
-            }
-        }
-        save() {
-            this.gamedata.meta.lastSavedAt = moment.now();
-            localStorage.__tcsave = JSON.stringify(this.gamedata);
-            gamedata.set(this.gamedata);
-        }
-    }
-    var SaveController$1 = initializeController(SaveController);
-
-    class TimeMachineController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-            ];
-        }
-        getModifications() {
-            return modifications.filter(m => m.unlocksAt(this.gamedata));
-        }
-        isModificationOwned(name) {
-            return this.gamedata.timeMachine.modifications.includes(name);
-        }
-        buyModification(name) {
-            var _a;
-            if (this.gamedata.timeMachine.modifications.includes(name)) {
-                return;
-            }
-            const mod = (_a = modifications.find(m => m.name === name)) !== null && _a !== void 0 ? _a : null;
-            if (mod.price > this.gamedata.datasets.amount) {
-                return;
-            }
-            this.gamedata.datasets.amount -= mod.price;
-            this.gamedata.timeMachine.modifications.push(mod.name);
-            gamedata.set(this.gamedata);
-        }
-        getOwnedModifications() {
-            return modifications.filter(m => this.gamedata.timeMachine.modifications.includes(m.name));
-        }
-        reset() {
-            const toAward = DatasetController.getNextResetDatasets();
-            this.gamedata.datasets.amount += toAward;
-            this.gamedata.cycles.current.totalData = 0;
-            this.gamedata.data.amount = 0;
-            this.gamedata.events.stored = [];
-            this.gamedata.loops.completed = [];
-            this.gamedata.loops.current = {
-                increment: this.gamedata.loops.current.increment,
-                fresh: true,
-                paused: false,
-                dataDelta: 0,
-                running: false,
-                progress: {
-                    time: 0,
-                    next: 0,
-                },
-                length: 0,
-                events: [],
-                recorded: [],
-                buildings: {},
-            };
-            gamedata.set(this.gamedata);
-            StoredLoopController$1.clearLoops();
-            SaveController$1.save();
-        }
-    }
-    var TimeMachineController$1 = initializeController(TimeMachineController);
-
-    class LoopController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'tickers', source: tickers },
-                { key: 'toRender', source: toRender },
-                { key: 'hooks', source: hooks },
-            ];
-            this.loopTicker = null;
-        }
-        toggleLoop() {
-            let running = this.gamedata.loops.current.running;
-            if (running) {
-                this.recordLoop();
-                return;
-            }
-            this.startLoop();
-        }
-        discardLoop() {
-            this.freshLoopData();
-            this.rehook();
-            gamedata.set(this.gamedata);
-        }
-        getCurrentMainAction() {
-            if (this.gamedata.loops.current.fresh) {
-                return this.toggleLoop.bind(this);
-            }
-            if (!this.gamedata.loops.current.fresh) {
-                return this.discardLoop.bind(this);
-            }
-        }
-        recordLoop() {
-            this.gamedata.loops.current.dataDelta = 0;
-            this.gamedata.loops.current.running = false;
-            this.gamedata.loops.current.events = [];
-            this.gamedata.events.stored = [];
-            this.gamedata.loops.current.fresh = false;
-            this.gamedata.loops.current.paused = false;
-            this.gamedata.loops.current.length = this.gamedata.loops.current.progress.time;
-            this.rehook();
-            this.gamedata.meta.totals.loops++;
-            gamedata.set(this.gamedata);
-        }
-        rehook() {
-            this.hooks = { onEventRoll: [], onIncome: [] };
-            hooks.set(this.hooks);
-            for (const key in this.gamedata.loops.current.buildings) {
-                buildings.filter(b => b.name === key)[0].onActive();
-            }
-        }
-        refereshRender() {
-            toRender.set([
-                ...this.gamedata.loops.current.recorded.map(pb => pb.at),
-                ...this.gamedata.loops.current.events.map(e => e.occursAt)
-            ]);
-        }
-        startLoop() {
-            this.gamedata.loops.current.running = true;
-            this.gamedata.loops.current.progress.time = 0;
-            if (!this.gamedata.loops.current.fresh) {
-                this.gamedata.loops.current.paused = false;
-                this.gamedata.loops.current.recorded = this.gamedata.loops.current.recorded
-                    .map(r => { r.consumed = false; return r; });
-            }
-            else {
-                this.seedEvents();
-            }
-            this.refereshRender();
-            this.restartInterval();
-            this.rehook();
-            gamedata.set(this.gamedata);
-        }
-        seedEvents() {
-            const count = 5;
-            for (let i = 0; i < count; i++) {
-                let occursAt = (i + 1) * 1000;
-                const pipe = new EventDispatchPipeline();
-                for (const mod of TimeMachineController$1.getOwnedModifications()) {
-                    if (EventDispatchPipeline === mod.turnsOnAt) {
-                        pipe.pushMember(mod.effect);
-                    }
-                }
-                occursAt = pipe.run(occursAt);
-                const payload = EventController$1.getRandomEvent().name;
-                this.gamedata.loops.current.events.push({ occursAt, payload });
-                this.toRender.push(occursAt);
-            }
-        }
-        tick() {
-            if (this.gamedata.loops.current.paused) {
-                return;
-            }
-            this.gamedata.loops.current.progress.time += 100;
-            if (!this.gamedata.loops.current.fresh) {
-                if (this.gamedata.loops.current.length <= this.gamedata.loops.current.progress.time) {
-                    this.recordLoop();
-                    this.startLoop();
-                }
-                const consumable = this.gamedata.loops.current.recorded
-                    .filter(e => this.gamedata.loops.current.progress.time >= e.at && !e.consumed);
-                for (const c of consumable) {
-                    const index = this.gamedata.loops.current.recorded.indexOf(c);
-                    DataController$1.awardData(c.deltaData, true);
-                    this.gamedata.loops.current.recorded[index].consumed = true;
-                }
-            }
-            else {
-                const passed = this.gamedata.loops.current.events
-                    .filter(e => this.gamedata.loops.current.progress.time >= e.occursAt);
-                if (passed.length > 0) {
-                    for (const evt of passed) {
-                        if (this.gamedata.events.capacity > this.gamedata.events.stored.length) {
-                            this.gamedata.events.stored.push(Object.assign(Object.assign({}, evt), { message: '123' })); //TODO: snatch log
-                        }
-                        const index = this.gamedata.loops.current.events.indexOf(evt);
-                        this.gamedata.loops.current.events.splice(index, 1);
-                        this.addEvent();
-                    }
-                }
-            }
-            gamedata.set(this.gamedata);
-        }
-        togglePause() {
-            if (!this.gamedata.loops.current.running) {
-                return;
-            }
-            this.gamedata.loops.current.paused = !this.gamedata.loops.current.paused;
-            gamedata.set(this.gamedata);
-        }
-        restartInterval() {
-            if (this.loopTicker !== null) {
-                clearInterval(this.loopTicker);
-            }
-            clearTickers();
-            pushListener(this.tick.bind(this));
-            this.loopTicker = setInterval(() => {
-                for (const subscribed of this.tickers) {
-                    subscribed();
-                }
-            }, 100);
-        }
-        reboot() {
-            this.restartInterval();
-            this.rehook();
-        }
-        addEvent() {
-            const baseDiff = 1000; //TODO: remake formula
-            const events = this.gamedata.loops.current.events;
-            const occursAt = events[events.length - 1].occursAt
-                + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
-            const payload = EventController$1.getRandomEvent().name;
-            const wrapped = { occursAt };
-            for (const hook of this.hooks.onEventRoll) {
-                hook(this.gamedata, wrapped, this.gamedata.loops.current.progress.time);
-            }
-            let diff = wrapped.occursAt - this.gamedata.loops.current.progress.time;
-            const pipe = new EventDispatchPipeline();
-            for (const mod of TimeMachineController$1.getOwnedModifications()) {
-                if (EventDispatchPipeline === mod.turnsOnAt) {
-                    pipe.pushMember(mod.effect);
-                }
-            }
-            diff = pipe.run(diff);
-            this.gamedata.loops.current.events.push({
-                occursAt: this.gamedata.loops.current.progress.time + diff,
-                payload,
-            });
-            this.toRender.push(occursAt);
-            toRender.set(this.toRender);
-        }
-        storeLoop() {
-            const copy = this.gamedata.loops.current;
-            if (this.gamedata.loops.maxCompleted <= this.gamedata.loops.completed.length) {
-                return;
-            }
-            const totalIncome = this.gamedata.loops.current.recorded.map(r => r.deltaData);
-            let bakedIncome = 0;
-            if (totalIncome.length > 0) {
-                bakedIncome = totalIncome.reduce((a, b) => a += b);
-            }
-            const duration = this.gamedata.loops.current.length;
-            const id = this.gamedata.loops.current.increment;
-            this.gamedata.loops.completed.push(Object.assign(Object.assign({}, copy), { bakedIncome, duration }));
-            this.freshLoopData();
-            this.rehook();
-            gamedata.set(this.gamedata);
-            hooks.set(this.hooks);
-            StoredLoopController$1.bootLoop(id);
-        }
-        freshLoopData() {
-            this.gamedata.loops.current = {
-                increment: this.gamedata.loops.current.increment + 1,
-                fresh: true,
-                paused: false,
-                dataDelta: 0,
-                running: false,
-                progress: {
-                    time: 0,
-                    next: 0,
-                },
-                length: 0,
-                buildings: {},
-                events: [],
-                recorded: [],
-            };
-        }
-    }
-    var LoopController$1 = initializeController(LoopController);
-
     class TimeController extends Controller {
         constructor() {
             super(...arguments);
@@ -7880,15 +7919,15 @@ var app = (function () {
     /* src/Parts/EventStock.svelte generated by Svelte v3.44.3 */
     const file$7 = "src/Parts/EventStock.svelte";
 
-    function get_each_context$6(ctx, list, i) {
+    function get_each_context$7(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[5] = list[i];
-    	child_ctx[7] = i;
+    	child_ctx[6] = list[i];
+    	child_ctx[8] = i;
     	return child_ctx;
     }
 
-    // (18:4) {:else}
-    function create_else_block$4(ctx) {
+    // (25:4) {:else}
+    function create_else_block$5(ctx) {
     	let div0;
     	let t0;
     	let t1_value = /*$gamedata*/ ctx[1].loops.current.recorded.length + "";
@@ -7914,8 +7953,8 @@ var app = (function () {
     			t5 = text(" (");
     			t6 = text(t6_value);
     			t7 = text("/s)");
-    			add_location(div0, file$7, 18, 8, 856);
-    			add_location(div1, file$7, 19, 8, 931);
+    			add_location(div0, file$7, 25, 8, 1114);
+    			add_location(div1, file$7, 26, 8, 1189);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div0, anchor);
@@ -7945,30 +7984,43 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_else_block$4.name,
+    		id: create_else_block$5.name,
     		type: "else",
-    		source: "(18:4) {:else}",
+    		source: "(25:4) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (11:4) {#if $gamedata.loops.current.fresh}
-    function create_if_block$5(ctx) {
-    	let each_1_anchor;
+    // (12:4) {#if $gamedata.loops.current.fresh}
+    function create_if_block$6(ctx) {
+    	let t;
+    	let div;
+    	let button;
     	let current;
     	let each_value = Array(/*$gamedata*/ ctx[1].events.capacity);
     	validate_each_argument(each_value);
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$6(get_each_context$6(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$7(get_each_context$7(ctx, each_value, i));
     	}
 
     	const out = i => transition_out(each_blocks[i], 1, 1, () => {
     		each_blocks[i] = null;
     	});
+
+    	button = new Button({
+    			props: {
+    				inactive: /*$gamedata*/ ctx[1].events.stored.length === 0,
+    				$$slots: { default: [create_default_slot$7] },
+    				$$scope: { ctx }
+    			},
+    			$$inline: true
+    		});
+
+    	button.$on("click", /*click_handler_1*/ ctx[5]);
 
     	const block = {
     		c: function create() {
@@ -7976,14 +8028,19 @@ var app = (function () {
     				each_blocks[i].c();
     			}
 
-    			each_1_anchor = empty$1();
+    			t = space();
+    			div = element("div");
+    			create_component(button.$$.fragment);
+    			add_location(div, file$7, 18, 8, 894);
     		},
     		m: function mount(target, anchor) {
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].m(target, anchor);
     			}
 
-    			insert_dev(target, each_1_anchor, anchor);
+    			insert_dev(target, t, anchor);
+    			insert_dev(target, div, anchor);
+    			mount_component(button, div, null);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
@@ -7993,16 +8050,16 @@ var app = (function () {
     				let i;
 
     				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$6(ctx, each_value, i);
+    					const child_ctx = get_each_context$7(ctx, each_value, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$6(child_ctx);
+    						each_blocks[i] = create_each_block$7(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(each_1_anchor.parentNode, each_1_anchor);
+    						each_blocks[i].m(t.parentNode, t);
     					}
     				}
 
@@ -8014,6 +8071,15 @@ var app = (function () {
 
     				check_outros();
     			}
+
+    			const button_changes = {};
+    			if (dirty & /*$gamedata*/ 2) button_changes.inactive = /*$gamedata*/ ctx[1].events.stored.length === 0;
+
+    			if (dirty & /*$$scope*/ 512) {
+    				button_changes.$$scope = { dirty, ctx };
+    			}
+
+    			button.$set(button_changes);
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -8022,6 +8088,7 @@ var app = (function () {
     				transition_in(each_blocks[i]);
     			}
 
+    			transition_in(button.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
@@ -8031,37 +8098,40 @@ var app = (function () {
     				transition_out(each_blocks[i]);
     			}
 
+    			transition_out(button.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			destroy_each(each_blocks, detaching);
-    			if (detaching) detach_dev(each_1_anchor);
+    			if (detaching) detach_dev(t);
+    			if (detaching) detach_dev(div);
+    			destroy_component(button);
     		}
     	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$5.name,
+    		id: create_if_block$6.name,
     		type: "if",
-    		source: "(11:4) {#if $gamedata.loops.current.fresh}",
+    		source: "(12:4) {#if $gamedata.loops.current.fresh}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (12:8) {#each Array($gamedata.events.capacity) as _, index}
-    function create_each_block$6(ctx) {
+    // (13:8) {#each Array($gamedata.events.capacity) as _, index}
+    function create_each_block$7(ctx) {
     	let recorddot;
     	let current;
 
     	function click_handler() {
-    		return /*click_handler*/ ctx[4](/*index*/ ctx[7]);
+    		return /*click_handler*/ ctx[4](/*index*/ ctx[8]);
     	}
 
     	recorddot = new RecordDot({
     			props: {
-    				filled: /*index*/ ctx[7] < /*$gamedata*/ ctx[1].events.stored.length
+    				filled: /*index*/ ctx[8] < /*$gamedata*/ ctx[1].events.stored.length
     			},
     			$$inline: true
     		});
@@ -8079,7 +8149,7 @@ var app = (function () {
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
     			const recorddot_changes = {};
-    			if (dirty & /*$gamedata*/ 2) recorddot_changes.filled = /*index*/ ctx[7] < /*$gamedata*/ ctx[1].events.stored.length;
+    			if (dirty & /*$gamedata*/ 2) recorddot_changes.filled = /*index*/ ctx[8] < /*$gamedata*/ ctx[1].events.stored.length;
     			recorddot.$set(recorddot_changes);
     		},
     		i: function intro(local) {
@@ -8098,9 +8168,36 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$6.name,
+    		id: create_each_block$7.name,
     		type: "each",
-    		source: "(12:8) {#each Array($gamedata.events.capacity) as _, index}",
+    		source: "(13:8) {#each Array($gamedata.events.capacity) as _, index}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (20:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >
+    function create_default_slot$7(ctx) {
+    	let t;
+
+    	const block = {
+    		c: function create() {
+    			t = text("Analyze log");
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, t, anchor);
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(t);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_default_slot$7.name,
+    		type: "slot",
+    		source: "(20:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >",
     		ctx
     	});
 
@@ -8114,7 +8211,7 @@ var app = (function () {
     	let current_block_type_index;
     	let if_block;
     	let current;
-    	const if_block_creators = [create_if_block$5, create_else_block$4];
+    	const if_block_creators = [create_if_block$6, create_else_block$5];
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
@@ -8133,9 +8230,9 @@ var app = (function () {
     			div1 = element("div");
     			if_block.c();
     			attr_dev(div0, "class", "title");
-    			add_location(div0, file$7, 8, 0, 479);
+    			add_location(div0, file$7, 9, 0, 529);
     			attr_dev(div1, "class", "mt-2 text-center");
-    			add_location(div1, file$7, 9, 0, 520);
+    			add_location(div1, file$7, 10, 0, 570);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -8218,11 +8315,13 @@ var app = (function () {
     	});
 
     	const click_handler = index => EventController$1.logRecord(index);
+    	const click_handler_1 = () => EventController$1.logRecord(0);
 
     	$$self.$capture_state = () => ({
     		gamedata,
     		EventController: EventController$1,
     		RecordDot,
+    		Button,
     		totalIncome,
     		perSecond,
     		mapped,
@@ -8257,7 +8356,7 @@ var app = (function () {
     		}
     	};
 
-    	return [totalIncome, $gamedata, perSecond, mapped, click_handler];
+    	return [totalIncome, $gamedata, perSecond, mapped, click_handler, click_handler_1];
     }
 
     class EventStock extends SvelteComponentDev {
@@ -8276,10 +8375,10 @@ var app = (function () {
 
     /* src/Parts/UpgradeStock.svelte generated by Svelte v3.44.3 */
 
-    const { Object: Object_1$1 } = globals;
+    const { Object: Object_1$2 } = globals;
     const file$6 = "src/Parts/UpgradeStock.svelte";
 
-    function get_each_context$5(ctx, list, i) {
+    function get_each_context$6(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[3] = list[i];
     	return child_ctx;
@@ -8313,7 +8412,7 @@ var app = (function () {
     }
 
     // (34:20) {:else}
-    function create_else_block$3(ctx) {
+    function create_else_block$4(ctx) {
     	let t;
 
     	const block = {
@@ -8333,7 +8432,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_else_block$3.name,
+    		id: create_else_block$4.name,
     		type: "else",
     		source: "(34:20) {:else}",
     		ctx
@@ -8343,7 +8442,7 @@ var app = (function () {
     }
 
     // (28:20) {#if $gamedata.loops.current.fresh}
-    function create_if_block$4(ctx) {
+    function create_if_block$5(ctx) {
     	let button;
     	let current;
 
@@ -8355,7 +8454,7 @@ var app = (function () {
     			props: {
     				mw: true,
     				inactive: /*$gamedata*/ ctx[0].data.amount < /*building*/ ctx[3].price,
-    				$$slots: { default: [create_default_slot$5] },
+    				$$slots: { default: [create_default_slot$6] },
     				$$scope: { ctx }
     			},
     			$$inline: true
@@ -8398,7 +8497,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$4.name,
+    		id: create_if_block$5.name,
     		type: "if",
     		source: "(28:20) {#if $gamedata.loops.current.fresh}",
     		ctx
@@ -8408,7 +8507,7 @@ var app = (function () {
     }
 
     // (29:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >
-    function create_default_slot$5(ctx) {
+    function create_default_slot$6(ctx) {
     	let t;
 
     	const block = {
@@ -8425,7 +8524,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_default_slot$5.name,
+    		id: create_default_slot$6.name,
     		type: "slot",
     		source: "(29:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >",
     		ctx
@@ -8435,7 +8534,7 @@ var app = (function () {
     }
 
     // (16:4) {#each purchaseable as building}
-    function create_each_block$5(ctx) {
+    function create_each_block$6(ctx) {
     	let div6;
     	let div0;
     	let t0_value = /*building*/ ctx[3].name + "";
@@ -8456,7 +8555,7 @@ var app = (function () {
     	let if_block;
     	let t6;
     	let current;
-    	const if_block_creators = [create_if_block$4, create_else_block$3];
+    	const if_block_creators = [create_if_block$5, create_else_block$4];
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
@@ -8564,7 +8663,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$5.name,
+    		id: create_each_block$6.name,
     		type: "each",
     		source: "(16:4) {#each purchaseable as building}",
     		ctx
@@ -8585,7 +8684,7 @@ var app = (function () {
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$5(get_each_context$5(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$6(get_each_context$6(ctx, each_value, i));
     	}
 
     	const out = i => transition_out(each_blocks[i], 1, 1, () => {
@@ -8644,13 +8743,13 @@ var app = (function () {
     				let i;
 
     				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$5(ctx, each_value, i);
+    					const child_ctx = get_each_context$6(ctx, each_value, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$5(child_ctx);
+    						each_blocks[i] = create_each_block$6(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
     						each_blocks[i].m(div1, null);
@@ -8713,7 +8812,7 @@ var app = (function () {
     	let purchaseable = [];
     	const writable_props = [];
 
-    	Object_1$1.keys($$props).forEach(key => {
+    	Object_1$2.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== '$$' && key !== 'slot') console.warn(`<UpgradeStock> was created with unknown prop '${key}'`);
     	});
 
@@ -8764,7 +8863,7 @@ var app = (function () {
     /* src/Views/Start.svelte generated by Svelte v3.44.3 */
     const file$5 = "src/Views/Start.svelte";
 
-    function get_each_context$4(ctx, list, i) {
+    function get_each_context$5(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[11] = list[i];
     	return child_ctx;
@@ -8843,7 +8942,7 @@ var app = (function () {
     }
 
     // (40:16) <Button                     on:click={()=>LoopController.storeLoop()}                     inactive={$gamedata.loops.current.fresh}                 >
-    function create_default_slot$4(ctx) {
+    function create_default_slot$5(ctx) {
     	let t;
 
     	const block = {
@@ -8860,7 +8959,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_default_slot$4.name,
+    		id: create_default_slot$5.name,
     		type: "slot",
     		source: "(40:16) <Button                     on:click={()=>LoopController.storeLoop()}                     inactive={$gamedata.loops.current.fresh}                 >",
     		ctx
@@ -9018,7 +9117,7 @@ var app = (function () {
     }
 
     // (73:8) {:else}
-    function create_else_block$2(ctx) {
+    function create_else_block$3(ctx) {
     	let div2;
     	let div0;
     	let t0;
@@ -9058,7 +9157,7 @@ var app = (function () {
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$4(get_each_context$4(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$5(get_each_context$5(ctx, each_value, i));
     	}
 
     	const out_1 = i => transition_out(each_blocks[i], 1, 1, () => {
@@ -9188,13 +9287,13 @@ var app = (function () {
     				let i;
 
     				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$4(ctx, each_value, i);
+    					const child_ctx = get_each_context$5(ctx, each_value, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$4(child_ctx);
+    						each_blocks[i] = create_each_block$5(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
     						each_blocks[i].m(div8, null);
@@ -9256,7 +9355,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_else_block$2.name,
+    		id: create_else_block$3.name,
     		type: "else",
     		source: "(73:8) {:else}",
     		ctx
@@ -9266,7 +9365,7 @@ var app = (function () {
     }
 
     // (70:8) {#if !$gamedata.loops.current.running}
-    function create_if_block$3(ctx) {
+    function create_if_block$4(ctx) {
     	let div;
 
     	const block = {
@@ -9287,7 +9386,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$3.name,
+    		id: create_if_block$4.name,
     		type: "if",
     		source: "(70:8) {#if !$gamedata.loops.current.running}",
     		ctx
@@ -9345,7 +9444,7 @@ var app = (function () {
     }
 
     // (101:28) {#each $logs as log}
-    function create_each_block$4(ctx) {
+    function create_each_block$5(ctx) {
     	let logentry;
     	let current;
     	const logentry_spread_levels = [/*log*/ ctx[11]];
@@ -9388,7 +9487,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$4.name,
+    		id: create_each_block$5.name,
     		type: "each",
     		source: "(101:28) {#each $logs as log}",
     		ctx
@@ -9452,7 +9551,7 @@ var app = (function () {
     	button2 = new Button({
     			props: {
     				inactive: /*$gamedata*/ ctx[1].loops.current.fresh,
-    				$$slots: { default: [create_default_slot$4] },
+    				$$slots: { default: [create_default_slot$5] },
     				$$scope: { ctx }
     			},
     			$$inline: true
@@ -9467,7 +9566,7 @@ var app = (function () {
 
     	let current_block_type = select_block_type(ctx);
     	let if_block0 = current_block_type(ctx);
-    	const if_block_creators = [create_if_block$3, create_else_block$2];
+    	const if_block_creators = [create_if_block$4, create_else_block$3];
     	const if_blocks = [];
 
     	function select_block_type_1(ctx, dirty) {
@@ -9793,18 +9892,18 @@ var app = (function () {
             return true;
         }
     }
-    const c$1 = initializeController(TriggerController);
+    const c$2 = initializeController(TriggerController);
 
     /* src/Layout.svelte generated by Svelte v3.44.3 */
     const file$4 = "src/Layout.svelte";
 
-    function get_each_context$3(ctx, list, i) {
+    function get_each_context$4(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[6] = list[i];
     	return child_ctx;
     }
 
-    // (17:58) <Button highlight={true}>
+    // (18:58) <Button highlight={true}>
     function create_default_slot_1$1(ctx) {
     	let t_value = /*entry*/ ctx[6].name + "";
     	let t;
@@ -9828,15 +9927,15 @@ var app = (function () {
     		block,
     		id: create_default_slot_1$1.name,
     		type: "slot",
-    		source: "(17:58) <Button highlight={true}>",
+    		source: "(18:58) <Button highlight={true}>",
     		ctx
     	});
 
     	return block;
     }
 
-    // (16:4) {#each renderable as entry}
-    function create_each_block$3(ctx) {
+    // (17:4) {#each renderable as entry}
+    function create_each_block$4(ctx) {
     	let span;
     	let a;
     	let button;
@@ -9859,9 +9958,9 @@ var app = (function () {
     			a = element("a");
     			create_component(button.$$.fragment);
     			attr_dev(a, "href", a_href_value = `#` + /*entry*/ ctx[6].to);
-    			add_location(a, file$4, 16, 35, 904);
+    			add_location(a, file$4, 17, 35, 1031);
     			attr_dev(span, "class", "px-1");
-    			add_location(span, file$4, 16, 8, 877);
+    			add_location(span, file$4, 17, 8, 1004);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, span, anchor);
@@ -9907,17 +10006,17 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$3.name,
+    		id: create_each_block$4.name,
     		type: "each",
-    		source: "(16:4) {#each renderable as entry}",
+    		source: "(17:4) {#each renderable as entry}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (30:8) <Button on:click={()=>SaveController.save()}>
-    function create_default_slot$3(ctx) {
+    // (31:8) <Button on:click={()=>SaveController.save()}>
+    function create_default_slot$4(ctx) {
     	let t;
 
     	const block = {
@@ -9934,9 +10033,9 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_default_slot$3.name,
+    		id: create_default_slot$4.name,
     		type: "slot",
-    		source: "(30:8) <Button on:click={()=>SaveController.save()}>",
+    		source: "(31:8) <Button on:click={()=>SaveController.save()}>",
     		ctx
     	});
 
@@ -9970,7 +10069,7 @@ var app = (function () {
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$3(get_each_context$3(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$4(get_each_context$4(ctx, each_value, i));
     	}
 
     	const out = i => transition_out(each_blocks[i], 1, 1, () => {
@@ -9982,7 +10081,7 @@ var app = (function () {
 
     	button = new Button({
     			props: {
-    				$$slots: { default: [create_default_slot$3] },
+    				$$slots: { default: [create_default_slot$4] },
     				$$scope: { ctx }
     			},
     			$$inline: true
@@ -10017,19 +10116,19 @@ var app = (function () {
     			t8 = space();
     			create_component(button.$$.fragment);
     			attr_dev(div0, "class", "px-3 my-auto header text-center svelte-5zl5qt");
-    			add_location(div0, file$4, 14, 0, 791);
+    			add_location(div0, file$4, 15, 0, 918);
     			attr_dev(div1, "class", "root-view svelte-5zl5qt");
-    			add_location(div1, file$4, 19, 0, 1004);
+    			add_location(div1, file$4, 20, 0, 1131);
     			attr_dev(div2, "class", "col-3 my-auto");
-    			add_location(div2, file$4, 23, 4, 1101);
-    			add_location(span0, file$4, 25, 8, 1175);
+    			add_location(div2, file$4, 24, 4, 1228);
+    			add_location(span0, file$4, 26, 8, 1302);
     			attr_dev(div3, "class", "col-6 my-auto");
-    			add_location(div3, file$4, 24, 4, 1139);
-    			add_location(span1, file$4, 28, 8, 1269);
+    			add_location(div3, file$4, 25, 4, 1266);
+    			add_location(span1, file$4, 29, 8, 1396);
     			attr_dev(div4, "class", "col-3 my-auto");
-    			add_location(div4, file$4, 27, 4, 1233);
+    			add_location(div4, file$4, 28, 4, 1360);
     			attr_dev(div5, "class", "px-0 row my-auto footer text-center svelte-5zl5qt");
-    			add_location(div5, file$4, 22, 0, 1047);
+    			add_location(div5, file$4, 23, 0, 1174);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -10072,13 +10171,13 @@ var app = (function () {
     				let i;
 
     				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$3(ctx, each_value, i);
+    					const child_ctx = get_each_context$4(ctx, each_value, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$3(child_ctx);
+    						each_blocks[i] = create_each_block$4(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
     						each_blocks[i].m(div0, null);
@@ -10174,18 +10273,23 @@ var app = (function () {
     	const nav = [
     		{
     			name: 'Flow',
-    			condition: () => c$1.try('flow', gd => true),
+    			condition: () => c$2.try('flow', gd => true),
     			to: '/'
     		},
     		{
     			name: 'Loops',
-    			condition: () => c$1.try('loopsUnlocked', gd => gd.loops.completed.length > 0),
+    			condition: () => c$2.try('loopsUnlocked', gd => gd.loops.completed.length > 0),
     			to: '/loops'
     		},
     		{
     			name: 'Time Machine',
-    			condition: () => c$1.try('tmUnlocked', gd => gd.loops.completed.length >= 3),
+    			condition: () => c$2.try('tmUnlocked', gd => gd.loops.completed.length >= 3),
     			to: '/machine'
+    		},
+    		{
+    			name: 'Database',
+    			condition: () => c$2.try('dbUnlocked', gd => gd.cycles.total > 0),
+    			to: '/database'
     		}
     	];
 
@@ -10207,7 +10311,7 @@ var app = (function () {
     		gamedata,
     		Button,
     		SaveController: SaveController$1,
-    		TriggerController: c$1,
+    		TriggerController: c$2,
     		moment,
     		nav,
     		renderable,
@@ -10248,7 +10352,7 @@ var app = (function () {
     /* src/Components/Progressbar.svelte generated by Svelte v3.44.3 */
     const file$3 = "src/Components/Progressbar.svelte";
 
-    function get_each_context$2(ctx, list, i) {
+    function get_each_context$3(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[9] = list[i];
     	child_ctx[11] = i;
@@ -10256,7 +10360,7 @@ var app = (function () {
     }
 
     // (15:0) {#if !mute}
-    function create_if_block$2(ctx) {
+    function create_if_block$3(ctx) {
     	let div2;
     	let div0;
     	let t0;
@@ -10307,7 +10411,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$2.name,
+    		id: create_if_block$3.name,
     		type: "if",
     		source: "(15:0) {#if !mute}",
     		ctx
@@ -10317,7 +10421,7 @@ var app = (function () {
     }
 
     // (28:8) {#each Array(nodes) as _, index}
-    function create_each_block$2(ctx) {
+    function create_each_block$3(ctx) {
     	let div;
     	let div_intro;
 
@@ -10349,7 +10453,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$2.name,
+    		id: create_each_block$3.name,
     		type: "each",
     		source: "(28:8) {#each Array(nodes) as _, index}",
     		ctx
@@ -10366,13 +10470,13 @@ var app = (function () {
     	let div1;
     	let t2;
     	let div2;
-    	let if_block = !/*mute*/ ctx[5] && create_if_block$2(ctx);
+    	let if_block = !/*mute*/ ctx[5] && create_if_block$3(ctx);
     	let each_value = Array(/*nodes*/ ctx[7]);
     	validate_each_argument(each_value);
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$2(get_each_context$2(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$3(get_each_context$3(ctx, each_value, i));
     	}
 
     	const block = {
@@ -10422,7 +10526,7 @@ var app = (function () {
     				if (if_block) {
     					if_block.p(ctx, dirty);
     				} else {
-    					if_block = create_if_block$2(ctx);
+    					if_block = create_if_block$3(ctx);
     					if_block.c();
     					if_block.m(t0.parentNode, t0);
     				}
@@ -10438,12 +10542,12 @@ var app = (function () {
     				let i;
 
     				for (i = old_length; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$2(ctx, each_value, i);
+    					const child_ctx = get_each_context$3(ctx, each_value, i);
 
     					if (each_blocks[i]) {
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$2(child_ctx);
+    						each_blocks[i] = create_each_block$3(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
     						each_blocks[i].m(div1, null);
@@ -10626,7 +10730,7 @@ var app = (function () {
     /* src/Views/Loops.svelte generated by Svelte v3.44.3 */
     const file$2 = "src/Views/Loops.svelte";
 
-    function get_each_context$1(ctx, list, i) {
+    function get_each_context$2(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[3] = list[i];
     	child_ctx[5] = i;
@@ -10640,7 +10744,7 @@ var app = (function () {
     }
 
     // (23:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >
-    function create_default_slot$2(ctx) {
+    function create_default_slot$3(ctx) {
     	let t;
 
     	const block = {
@@ -10657,7 +10761,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_default_slot$2.name,
+    		id: create_default_slot$3.name,
     		type: "slot",
     		source: "(23:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >",
     		ctx
@@ -10699,7 +10803,7 @@ var app = (function () {
     	button = new Button({
     			props: {
     				mw: true,
-    				$$slots: { default: [create_default_slot$2] },
+    				$$slots: { default: [create_default_slot$3] },
     				$$scope: { ctx }
     			},
     			$$inline: true
@@ -10824,7 +10928,7 @@ var app = (function () {
     }
 
     // (41:12) {#each Array(stubCount) as _, i}
-    function create_each_block$1(ctx) {
+    function create_each_block$2(ctx) {
     	let div1;
     	let div0;
     	let t1;
@@ -10852,7 +10956,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$1.name,
+    		id: create_each_block$2.name,
     		type: "each",
     		source: "(41:12) {#each Array(stubCount) as _, i}",
     		ctx
@@ -10887,7 +10991,7 @@ var app = (function () {
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
+    		each_blocks[i] = create_each_block$2(get_each_context$2(ctx, each_value, i));
     	}
 
     	const block = {
@@ -10980,10 +11084,10 @@ var app = (function () {
     				let i;
 
     				for (i = old_length; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$1(ctx, each_value, i);
+    					const child_ctx = get_each_context$2(ctx, each_value, i);
 
     					if (!each_blocks[i]) {
-    						each_blocks[i] = create_each_block$1(child_ctx);
+    						each_blocks[i] = create_each_block$2(child_ctx);
     						each_blocks[i].c();
     						each_blocks[i].m(div2, null);
     					}
@@ -11088,14 +11192,363 @@ var app = (function () {
     	}
     }
 
+    class DatabaseController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+            ];
+        }
+        toggleAuto(building) {
+            if (!(building in this.gamedata.knowledge.buildings.purchased)) {
+                return;
+            }
+            if (this.gamedata.knowledge.buildings.purchased[building] < buildings.find(b => b.name === building).toAuto) {
+                return;
+            }
+            if (this.gamedata.knowledge.buildings.auto.includes(building)) {
+                const index = this.gamedata.knowledge.buildings.auto.indexOf(building);
+                this.gamedata.knowledge.buildings.auto.splice(index, 1);
+            }
+            else {
+                this.gamedata.knowledge.buildings.auto.push(building);
+            }
+            this.____sync('gamedata');
+        }
+    }
+    const c$1 = initializeController(DatabaseController);
+
     /* src/Views/Database.svelte generated by Svelte v3.44.3 */
 
+    const { Object: Object_1$1 } = globals;
     const file$1 = "src/Views/Database.svelte";
+
+    function get_each_context$1(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[4] = list[i];
+    	return child_ctx;
+    }
+
+    // (46:20) {:else}
+    function create_else_block$2(ctx) {
+    	let t0;
+    	let t1_value = /*building*/ ctx[4].toAuto - /*$gamedata*/ ctx[0].knowledge.buildings.purchased[/*building*/ ctx[4].name] + "";
+    	let t1;
+    	let t2;
+
+    	const block = {
+    		c: function create() {
+    			t0 = text("purchase ");
+    			t1 = text(t1_value);
+    			t2 = text(" more to autobuy");
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, t2, anchor);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*purchased, $gamedata*/ 5 && t1_value !== (t1_value = /*building*/ ctx[4].toAuto - /*$gamedata*/ ctx[0].knowledge.buildings.purchased[/*building*/ ctx[4].name] + "")) set_data_dev(t1, t1_value);
+    		},
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(t2);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_else_block$2.name,
+    		type: "else",
+    		source: "(46:20) {:else}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (43:20) {#if $gamedata.knowledge.buildings.purchased[building.name] >= building.toAuto}
+    function create_if_block$2(ctx) {
+    	let button;
+    	let current;
+
+    	function click_handler() {
+    		return /*click_handler*/ ctx[3](/*building*/ ctx[4]);
+    	}
+
+    	button = new Button({
+    			props: {
+    				$$slots: { default: [create_default_slot$2] },
+    				$$scope: { ctx }
+    			},
+    			$$inline: true
+    		});
+
+    	button.$on("click", click_handler);
+
+    	const block = {
+    		c: function create() {
+    			create_component(button.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(button, target, anchor);
+    			current = true;
+    		},
+    		p: function update(new_ctx, dirty) {
+    			ctx = new_ctx;
+    			const button_changes = {};
+
+    			if (dirty & /*$$scope, $gamedata, purchased*/ 133) {
+    				button_changes.$$scope = { dirty, ctx };
+    			}
+
+    			button.$set(button_changes);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(button.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(button.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(button, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block$2.name,
+    		type: "if",
+    		source: "(43:20) {#if $gamedata.knowledge.buildings.purchased[building.name] >= building.toAuto}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (44:24) <Button on:click={()=>DatabaseController.toggleAuto(building.name)}                             >
+    function create_default_slot$2(ctx) {
+    	let t0_value = (/*$gamedata*/ ctx[0].knowledge.buildings.auto.includes(/*building*/ ctx[4].name)
+    	? 'Disable'
+    	: 'Enable') + "";
+
+    	let t0;
+    	let t1;
+
+    	const block = {
+    		c: function create() {
+    			t0 = text(t0_value);
+    			t1 = text(" autobuy");
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, t1, anchor);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*$gamedata, purchased*/ 5 && t0_value !== (t0_value = (/*$gamedata*/ ctx[0].knowledge.buildings.auto.includes(/*building*/ ctx[4].name)
+    			? 'Disable'
+    			: 'Enable') + "")) set_data_dev(t0, t0_value);
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(t1);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_default_slot$2.name,
+    		type: "slot",
+    		source: "(44:24) <Button on:click={()=>DatabaseController.toggleAuto(building.name)}                             >",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (37:8) {#each purchased as building}
+    function create_each_block$1(ctx) {
+    	let div5;
+    	let div0;
+    	let t0_value = /*building*/ ctx[4].name + "";
+    	let t0;
+    	let t1;
+    	let div1;
+    	let current_block_type_index;
+    	let if_block;
+    	let t2;
+    	let div2;
+    	let raw_value = /*building*/ ctx[4].description + "";
+    	let t3;
+    	let div3;
+    	let t4;
+    	let t5_value = /*building*/ ctx[4].explainedCondition + "";
+    	let t5;
+    	let t6;
+    	let div4;
+    	let t7;
+    	let t8_value = /*building*/ ctx[4].price + "";
+    	let t8;
+    	let t9;
+    	let t10;
+    	let current;
+    	const if_block_creators = [create_if_block$2, create_else_block$2];
+    	const if_blocks = [];
+
+    	function select_block_type(ctx, dirty) {
+    		if (/*$gamedata*/ ctx[0].knowledge.buildings.purchased[/*building*/ ctx[4].name] >= /*building*/ ctx[4].toAuto) return 0;
+    		return 1;
+    	}
+
+    	current_block_type_index = select_block_type(ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+
+    	const block = {
+    		c: function create() {
+    			div5 = element("div");
+    			div0 = element("div");
+    			t0 = text(t0_value);
+    			t1 = space();
+    			div1 = element("div");
+    			if_block.c();
+    			t2 = space();
+    			div2 = element("div");
+    			t3 = space();
+    			div3 = element("div");
+    			t4 = text("Unlocks ");
+    			t5 = text(t5_value);
+    			t6 = space();
+    			div4 = element("div");
+    			t7 = text("Costs ");
+    			t8 = text(t8_value);
+    			t9 = text(" data");
+    			t10 = space();
+    			attr_dev(div0, "class", "oswld");
+    			add_location(div0, file$1, 38, 16, 1261);
+    			attr_dev(div1, "class", "text-center");
+    			add_location(div1, file$1, 41, 16, 1356);
+    			attr_dev(div2, "class", "mt-1 fw-100 ms-2");
+    			add_location(div2, file$1, 49, 16, 1920);
+    			attr_dev(div3, "class", "mt-1");
+    			add_location(div3, file$1, 52, 16, 2039);
+    			attr_dev(div4, "class", "mt-1");
+    			add_location(div4, file$1, 55, 16, 2155);
+    			attr_dev(div5, "class", "wrap-upgrade mb-2 svelte-8egyot");
+    			add_location(div5, file$1, 37, 12, 1213);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div5, anchor);
+    			append_dev(div5, div0);
+    			append_dev(div0, t0);
+    			append_dev(div5, t1);
+    			append_dev(div5, div1);
+    			if_blocks[current_block_type_index].m(div1, null);
+    			append_dev(div5, t2);
+    			append_dev(div5, div2);
+    			div2.innerHTML = raw_value;
+    			append_dev(div5, t3);
+    			append_dev(div5, div3);
+    			append_dev(div3, t4);
+    			append_dev(div3, t5);
+    			append_dev(div5, t6);
+    			append_dev(div5, div4);
+    			append_dev(div4, t7);
+    			append_dev(div4, t8);
+    			append_dev(div4, t9);
+    			append_dev(div5, t10);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			if ((!current || dirty & /*purchased*/ 4) && t0_value !== (t0_value = /*building*/ ctx[4].name + "")) set_data_dev(t0, t0_value);
+    			let previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type(ctx);
+
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(ctx, dirty);
+    			} else {
+    				group_outros();
+
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+
+    				check_outros();
+    				if_block = if_blocks[current_block_type_index];
+
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				} else {
+    					if_block.p(ctx, dirty);
+    				}
+
+    				transition_in(if_block, 1);
+    				if_block.m(div1, null);
+    			}
+
+    			if ((!current || dirty & /*purchased*/ 4) && raw_value !== (raw_value = /*building*/ ctx[4].description + "")) div2.innerHTML = raw_value;			if ((!current || dirty & /*purchased*/ 4) && t5_value !== (t5_value = /*building*/ ctx[4].explainedCondition + "")) set_data_dev(t5, t5_value);
+    			if ((!current || dirty & /*purchased*/ 4) && t8_value !== (t8_value = /*building*/ ctx[4].price + "")) set_data_dev(t8, t8_value);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div5);
+    			if_blocks[current_block_type_index].d();
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block$1.name,
+    		type: "each",
+    		source: "(37:8) {#each purchased as building}",
+    		ctx
+    	});
+
+    	return block;
+    }
 
     function create_fragment$3(ctx) {
     	let div2;
     	let div1;
     	let div0;
+    	let t1;
+    	let div7;
+    	let div6;
+    	let div3;
+    	let t3;
+    	let div4;
+    	let t4;
+    	let t5;
+    	let t6;
+    	let t7;
+    	let div5;
+    	let each_1_anchor;
+    	let current;
+    	let each_value = /*purchased*/ ctx[2];
+    	validate_each_argument(each_value);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value.length; i += 1) {
+    		each_blocks[i] = create_each_block$1(get_each_context$1(ctx, each_value, i));
+    	}
+
+    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
+    		each_blocks[i] = null;
+    	});
 
     	const block = {
     		c: function create() {
@@ -11103,12 +11556,40 @@ var app = (function () {
     			div1 = element("div");
     			div0 = element("div");
     			div0.textContent = "Database";
+    			t1 = space();
+    			div7 = element("div");
+    			div6 = element("div");
+    			div3 = element("div");
+    			div3.textContent = "Upgrades";
+    			t3 = space();
+    			div4 = element("div");
+    			t4 = text("Total autobuy price: ");
+    			t5 = text(/*totalPrice*/ ctx[1]);
+    			t6 = text(" data per loop");
+    			t7 = space();
+    			div5 = element("div");
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			each_1_anchor = empty$1();
     			attr_dev(div0, "class", "title mb-2");
-    			add_location(div0, file$1, 2, 12, 67);
+    			add_location(div0, file$1, 24, 12, 826);
     			attr_dev(div1, "class", "col-12 text-center");
-    			add_location(div1, file$1, 1, 4, 22);
+    			add_location(div1, file$1, 23, 4, 781);
     			attr_dev(div2, "class", "row");
-    			add_location(div2, file$1, 0, 0, 0);
+    			add_location(div2, file$1, 22, 0, 759);
+    			attr_dev(div3, "class", "title text-center mb-1");
+    			add_location(div3, file$1, 30, 8, 934);
+    			attr_dev(div4, "class", "mb-1 fw-100 text-center");
+    			add_location(div4, file$1, 31, 8, 993);
+    			attr_dev(div5, "class", "panel px-1 svelte-8egyot");
+    			add_location(div5, file$1, 34, 8, 1114);
+    			attr_dev(div6, "class", "col-4");
+    			add_location(div6, file$1, 29, 4, 906);
+    			attr_dev(div7, "class", "row");
+    			add_location(div7, file$1, 28, 0, 884);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -11117,12 +11598,79 @@ var app = (function () {
     			insert_dev(target, div2, anchor);
     			append_dev(div2, div1);
     			append_dev(div1, div0);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, div7, anchor);
+    			append_dev(div7, div6);
+    			append_dev(div6, div3);
+    			append_dev(div6, t3);
+    			append_dev(div6, div4);
+    			append_dev(div4, t4);
+    			append_dev(div4, t5);
+    			append_dev(div4, t6);
+    			append_dev(div6, t7);
+    			append_dev(div6, div5);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(div5, null);
+    			}
+
+    			append_dev(div5, each_1_anchor);
+    			current = true;
     		},
-    		p: noop,
-    		i: noop,
-    		o: noop,
+    		p: function update(ctx, [dirty]) {
+    			if (!current || dirty & /*totalPrice*/ 2) set_data_dev(t5, /*totalPrice*/ ctx[1]);
+
+    			if (dirty & /*purchased, DatabaseController, $gamedata*/ 5) {
+    				each_value = /*purchased*/ ctx[2];
+    				validate_each_argument(each_value);
+    				let i;
+
+    				for (i = 0; i < each_value.length; i += 1) {
+    					const child_ctx = get_each_context$1(ctx, each_value, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    						transition_in(each_blocks[i], 1);
+    					} else {
+    						each_blocks[i] = create_each_block$1(child_ctx);
+    						each_blocks[i].c();
+    						transition_in(each_blocks[i], 1);
+    						each_blocks[i].m(each_1_anchor.parentNode, each_1_anchor);
+    					}
+    				}
+
+    				group_outros();
+
+    				for (i = each_value.length; i < each_blocks.length; i += 1) {
+    					out(i);
+    				}
+
+    				check_outros();
+    			}
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+
+    			for (let i = 0; i < each_value.length; i += 1) {
+    				transition_in(each_blocks[i]);
+    			}
+
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			each_blocks = each_blocks.filter(Boolean);
+
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				transition_out(each_blocks[i]);
+    			}
+
+    			current = false;
+    		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div2);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(div7);
+    			destroy_each(each_blocks, detaching);
     		}
     	};
 
@@ -11137,16 +11685,57 @@ var app = (function () {
     	return block;
     }
 
-    function instance$3($$self, $$props) {
+    function instance$3($$self, $$props, $$invalidate) {
+    	let $gamedata;
+    	validate_store(gamedata, 'gamedata');
+    	component_subscribe($$self, gamedata, $$value => $$invalidate(0, $gamedata = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots('Database', slots, []);
+    	let totalPrice = 0;
+    	let purchased = buildings.filter(b => Object.keys($gamedata.knowledge.buildings.purchased).includes(b.name));
     	const writable_props = [];
 
-    	Object.keys($$props).forEach(key => {
+    	Object_1$1.keys($$props).forEach(key => {
     		if (!~writable_props.indexOf(key) && key.slice(0, 2) !== '$$' && key !== 'slot') console.warn(`<Database> was created with unknown prop '${key}'`);
     	});
 
-    	return [];
+    	const click_handler = building => c$1.toggleAuto(building.name);
+
+    	$$self.$capture_state = () => ({
+    		Button,
+    		buildings,
+    		gamedata,
+    		DatabaseController: c$1,
+    		totalPrice,
+    		purchased,
+    		$gamedata
+    	});
+
+    	$$self.$inject_state = $$props => {
+    		if ('totalPrice' in $$props) $$invalidate(1, totalPrice = $$props.totalPrice);
+    		if ('purchased' in $$props) $$invalidate(2, purchased = $$props.purchased);
+    	};
+
+    	if ($$props && "$$inject" in $$props) {
+    		$$self.$inject_state($$props.$$inject);
+    	}
+
+    	$$self.$$.update = () => {
+    		if ($$self.$$.dirty & /*$gamedata*/ 1) {
+    			((() => {
+    				$$invalidate(2, purchased = buildings.filter(b => Object.keys($gamedata.knowledge.buildings.purchased).includes(b.name)));
+    				const autoBuildings = buildings.filter(b => $gamedata.knowledge.buildings.auto.includes(b.name));
+
+    				if (autoBuildings.length > 0) {
+    					$$invalidate(1, totalPrice = autoBuildings.map(b => b.price).reduce((a, b) => a += b));
+    				} else {
+    					$$invalidate(1, totalPrice = 0);
+    				}
+    			})());
+    		}
+    	};
+
+    	return [$gamedata, totalPrice, purchased, click_handler];
     }
 
     class Database extends SvelteComponentDev {

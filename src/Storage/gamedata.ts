@@ -1,5 +1,6 @@
 import moment from "moment";
 import { writable, Writable } from "svelte/store";
+import buildings from "../Models/Buildings";
 
 export const gamedata: Writable<Gamedata> = writable({
     events: {
@@ -28,8 +29,16 @@ export const gamedata: Writable<Gamedata> = writable({
     },
     datasets: {amount: 0},
     cycles: {
+        total: 0,
         current: {
             totalData: 0,
+        }
+    },
+
+    knowledge: {
+        buildings: {
+            purchased: {},
+            auto: [],
         }
     },
 
@@ -73,6 +82,7 @@ export type Gamedata = {
     }
 
     cycles: {
+        total: number,
         current: {
             totalData: number,
         }
@@ -81,6 +91,12 @@ export type Gamedata = {
     timeMachine: {
         modifications: string[]
     },
+    knowledge: {
+        buildings: {
+            purchased: {[key: string]: number}
+            auto: string[],
+        }
+    }
 
     meta: {
         lastSavedAt: number,

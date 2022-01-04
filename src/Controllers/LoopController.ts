@@ -71,7 +71,7 @@ class LoopController extends Controller {
         }
     }
 
-    private refereshRender(): void
+    public refereshRender(): void
     {
         toRender.set([
             ...this.gamedata.loops.current.recorded.map(pb => pb.at), 
@@ -88,6 +88,7 @@ class LoopController extends Controller {
             this.gamedata.loops.current.recorded = this.gamedata.loops.current.recorded
                 .map(r => {r.consumed = false; return r})
         } else {
+            this.autobuy();
             this.seedEvents();
         }
         this.refereshRender();
@@ -172,6 +173,12 @@ class LoopController extends Controller {
                 subscribed()
             }
         }, 100)
+    }
+
+    private autobuy() {
+        for (const building of this.gamedata.knowledge.buildings.auto) {
+            DataController.purchaseBuilding(building);
+        }
     }
 
     public reboot(): void 

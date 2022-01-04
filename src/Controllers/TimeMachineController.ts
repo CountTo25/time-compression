@@ -39,6 +39,7 @@ class TimeMachineController extends Controller {
         const toAward = DatasetController.getNextResetDatasets();
         this.gamedata.datasets.amount+=toAward;
         this.gamedata.cycles.current.totalData = 0;
+        this.gamedata.cycles.total++;
         this.gamedata.data.amount = 0;
         this.gamedata.events.stored = [];
         this.gamedata.loops.completed = [];

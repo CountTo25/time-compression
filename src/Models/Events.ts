@@ -1,5 +1,6 @@
 import DataController from "../Controllers/DataController";
 import EventController from "../Controllers/EventController";
+import LoopController from "../Controllers/LoopController";
 import type { Gamedata, gamedata } from "../Storage/gamedata";
 import { tap } from "../Tools/tap";
 
@@ -26,7 +27,7 @@ const events: EventModel[] = [
     },
     {
         name: 'Acceleration',
-        effect: ()=>{EventController.shift(0.95); return 0},
+        effect: ()=>{EventController.shift(0.95); LoopController.refereshRender(); return 0},
         messages: [
             'Your interferience with this timeflow caused event occurrence to speed up'
         ],

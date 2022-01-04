@@ -34,6 +34,11 @@
 	font-family: 'Space Mono', monospace;
 }
 
+
+.fw-100 {
+	font-weight: 100;
+}
+
 .mnt {
 	font-family: 'Montserrat', sans-serif;
 }

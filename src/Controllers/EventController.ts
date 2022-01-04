@@ -21,7 +21,7 @@ class EventController extends Controller {
         const current = this.gamedata.loops.current.progress.time; //1000
         //1400
         if (occurstAt - current > 5000) {return 100}
-        if (occurstAt - current <= 0 ) {return 0}
+        if (occurstAt - current <= 100 ) {return 0}
         return (occurstAt - current)/5000 * 100;
     }
 

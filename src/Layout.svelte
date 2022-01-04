@@ -10,7 +10,8 @@ import moment from "moment";
 const nav = [
     {name: 'Flow', condition: ()=>TriggerController.try('flow', (gd: Gamedata)=>true), to: '/'},
     {name: 'Loops', condition: ()=>TriggerController.try('loopsUnlocked', (gd: Gamedata) => gd.loops.completed.length > 0), to: '/loops'},
-    {name: 'Time Machine', condition: ()=>TriggerController.try('tmUnlocked', (gd: Gamedata) => gd.loops.completed.length >= 3), to: '/machine'}
+    {name: 'Time Machine', condition: ()=>TriggerController.try('tmUnlocked', (gd: Gamedata) => gd.loops.completed.length >= 3), to: '/machine'},
+    {name: 'Database', condition: ()=>TriggerController.try('dbUnlocked', (gd: Gamedata) => gd.cycles.total > 0), to: '/database'},
 ];
 
 let renderable = [];

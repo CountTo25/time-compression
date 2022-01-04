@@ -40,6 +40,10 @@ class DataController extends Controller {
             this.gamedata.loops.current.buildings[building.name] = 0;
         }
         this.gamedata.loops.current.buildings[building.name]++;
+        if (!(building.name in this.gamedata.knowledge.buildings.purchased)) {
+            this.gamedata.knowledge.buildings.purchased[building.name] = 0;
+        }
+        this.gamedata.knowledge.buildings.purchased[building.name]++;
         building.onActive();
         gamedata.set(this.gamedata);
     }
