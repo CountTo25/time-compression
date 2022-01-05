@@ -6842,6 +6842,7 @@ var app = (function () {
     const empty = {
         onEventRoll: [],
         onIncome: [],
+        onEventConsumed: [],
     };
     const hooks = writable(empty);
 
@@ -7156,8 +7157,11 @@ var app = (function () {
             gamedata.set(this.gamedata);
         }
         rehook() {
-            this.hooks = { onEventRoll: [], onIncome: [] };
-            hooks.set(this.hooks);
+            hooks.set({
+                onEventConsumed: [],
+                onEventRoll: [],
+                onIncome: [],
+            });
             for (const key in this.gamedata.loops.current.buildings) {
                 buildings.filter(b => b.name === key)[0].onActive();
             }
@@ -7267,20 +7271,21 @@ var app = (function () {
             this.restartInterval();
             this.rehook();
         }
-        addEvent(related = null, distance = null) {
+        addEvent(delay = null) {
+            let related = null;
             const baseDiff = 1000; //TODO: remake formula
             const events = this.gamedata.loops.current.events;
             if (related === null) {
                 related = events.length - 1;
             }
             let occursAt = 0;
-            if (distance === null) {
+            if (delay === null) {
                 occursAt =
                     events[related].occursAt
                         + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
             }
             else {
-                occursAt = events[related].occursAt + distance;
+                occursAt = this.gamedata.loops.current.progress.time + delay;
             }
             const payload = EventController$1.getRandomEvent().name;
             const wrapped = { occursAt };
@@ -7341,10 +7346,41 @@ var app = (function () {
     }
     var LoopController$1 = initializeController(LoopController);
 
+    class TimeController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'logs', source: logs }
+            ];
+        }
+        toPrintable(time) {
+            return (time / 1000).toFixed(2) + ' s';
+        }
+        getNextEvent() {
+            var _a;
+            const fresh = this.gamedata.loops.current.fresh;
+            const evt = (_a = (fresh
+                ? this.gamedata.loops.current.events[0]
+                : this.gamedata.loops.current.recorded.filter(r => !r.consumed)[0])) !== null && _a !== void 0 ? _a : null;
+            if (evt === null) {
+                return 'never';
+            }
+            //@ts-ignore
+            const time = fresh ? evt.occursAt : evt.at;
+            return this.toPrintable(time);
+        }
+        now() {
+            return this.gamedata.loops.current.progress.time;
+        }
+    }
+    var TimeController$1 = initializeController(TimeController);
+
     const buildings = [
         {
             name: 'Chain of events',
             unlocksAt: (gd) => gd.data.amount >= 10,
+            condition: (gd) => true,
             onetime: true,
             price: 15,
             onActive: () => (hooks.update(h => {
@@ -7363,6 +7399,7 @@ var app = (function () {
         {
             name: 'Careful observation',
             unlocksAt: (gd) => gd.data.amount >= 5,
+            condition: (gd) => true,
             onetime: true,
             price: 10,
             onActive: () => (hooks.update(h => {
@@ -7378,6 +7415,7 @@ var app = (function () {
         {
             name: 'Probability manipulator',
             unlocksAt: (gd) => gd.loops.current.progress.time > 10000,
+            condition: (gd) => gd.loops.current.progress.time > 10000,
             onetime: true,
             price: 15,
             onActive: () => (hooks.update(h => {
@@ -7395,13 +7433,18 @@ var app = (function () {
         {
             name: 'Timeline wrapper',
             unlocksAt: (gd) => gd.meta.records.totalEvents > 100,
+            condition: (gd) => true,
             onetime: true,
             price: 50,
             onActive: () => (hooks.update(h => {
-                h.onEventRoll.push((gd, occurstAt, now) => {
-                    if (Math.random() <= 0.1) {
-                        const index = Math.floor(Math.random() * gd.loops.current.events.length);
-                        LoopController$1.addEvent(index);
+                h.onEventConsumed.push((gd) => {
+                    const roll = Math.random();
+                    console.log('roll' + roll);
+                    if (roll <= 0.1) {
+                        console.log('wraped');
+                        pushLog('Timeline wrapper forced new event to appear on timeline', TimeController$1.now());
+                        Math.floor(Math.random() * gd.loops.current.events.length);
+                        LoopController$1.addEvent(2000);
                     }
                 });
                 h.onIncome.push((gd, income) => {
@@ -7411,10 +7454,10 @@ var app = (function () {
                 });
                 return h;
             })),
-            description: 'Add 10% chance to spawn one more event after any of currently queued events',
+            description: 'Add 10% chance to spawn one more event 2 seconds from now whenever you analyze an event',
             toAuto: 10,
             explainedCondition: 'once timer reached 10 seconds'
-        }
+        },
     ];
 
     class DataController extends Controller {
@@ -7439,8 +7482,10 @@ var app = (function () {
             return value.value;
         }
         purchaseBuilding(ref) {
-            const building = buildings.filter(b => b.name === ref && (b.unlocksAt(this.gamedata) && b.name in this.gamedata.knowledge.buildings.purchased))[0];
+            const building = buildings.find(b => b.name === ref
+                && (b.condition(this.gamedata)));
             if (!building) {
+                console.log('no such building');
                 return;
             }
             if (this.gamedata.data.amount < building.price) {
@@ -7506,7 +7551,8 @@ var app = (function () {
             super(...arguments);
             this.wrapped = [
                 { key: 'gamedata', source: gamedata },
-                { key: 'logs', source: logs }
+                { key: 'logs', source: logs },
+                { key: 'hooks', source: hooks },
             ];
         }
         serveEvent() {
@@ -7531,6 +7577,9 @@ var app = (function () {
                 return;
             }
             const event = this.resolveEvent(this.gamedata.events.stored[index].payload);
+            for (const hook of this.hooks.onEventConsumed) {
+                hook(this.gamedata);
+            }
             let deltaData = 0;
             if (event === null) {
                 return;
@@ -7845,33 +7894,6 @@ var app = (function () {
     		throw new Error("<LogEntry>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
-
-    class TimeController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'logs', source: logs }
-            ];
-        }
-        toPrintable(time) {
-            return (time / 1000).toFixed(2) + ' s';
-        }
-        getNextEvent() {
-            var _a;
-            const fresh = this.gamedata.loops.current.fresh;
-            const evt = (_a = (fresh
-                ? this.gamedata.loops.current.events[0]
-                : this.gamedata.loops.current.recorded.filter(r => !r.consumed)[0])) !== null && _a !== void 0 ? _a : null;
-            if (evt === null) {
-                return 'never';
-            }
-            //@ts-ignore
-            const time = fresh ? evt.occursAt : evt.at;
-            return this.toPrintable(time);
-        }
-    }
-    var TimeController$1 = initializeController(TimeController);
 
     /* src/Components/RecordDot.svelte generated by Svelte v3.44.3 */
 
@@ -11739,7 +11761,7 @@ var app = (function () {
     	let div1;
     	let div0;
     	let t1;
-    	let div7;
+    	let div13;
     	let div6;
     	let div3;
     	let t3;
@@ -11750,6 +11772,19 @@ var app = (function () {
     	let t7;
     	let div5;
     	let each_1_anchor;
+    	let t8;
+    	let div7;
+    	let t9;
+    	let div12;
+    	let div8;
+    	let t11;
+    	let div9;
+    	let t13;
+    	let div11;
+    	let div10;
+    	let t14;
+    	let t15_value = /*$gamedata*/ ctx[0].meta.records.totalEvents + "";
+    	let t15;
     	let current;
     	let each_value = /*purchased*/ ctx[2];
     	validate_each_argument(each_value);
@@ -11770,7 +11805,7 @@ var app = (function () {
     			div0 = element("div");
     			div0.textContent = "Database";
     			t1 = space();
-    			div7 = element("div");
+    			div13 = element("div");
     			div6 = element("div");
     			div3 = element("div");
     			div3.textContent = "Upgrades";
@@ -11787,6 +11822,20 @@ var app = (function () {
     			}
 
     			each_1_anchor = empty$1();
+    			t8 = space();
+    			div7 = element("div");
+    			t9 = space();
+    			div12 = element("div");
+    			div8 = element("div");
+    			div8.textContent = "Stats";
+    			t11 = space();
+    			div9 = element("div");
+    			div9.textContent = "Inspect your stats here";
+    			t13 = space();
+    			div11 = element("div");
+    			div10 = element("div");
+    			t14 = text("Total events: ");
+    			t15 = text(t15_value);
     			attr_dev(div0, "class", "title mb-2");
     			add_location(div0, file$1, 24, 12, 826);
     			attr_dev(div1, "class", "col-12 text-center");
@@ -11801,8 +11850,19 @@ var app = (function () {
     			add_location(div5, file$1, 34, 8, 1114);
     			attr_dev(div6, "class", "col-4");
     			add_location(div6, file$1, 29, 4, 906);
-    			attr_dev(div7, "class", "row");
-    			add_location(div7, file$1, 28, 0, 884);
+    			attr_dev(div7, "class", "col-4");
+    			add_location(div7, file$1, 63, 4, 2325);
+    			attr_dev(div8, "class", "title text-center");
+    			add_location(div8, file$1, 67, 8, 2389);
+    			attr_dev(div9, "class", "fw-100 text-center");
+    			add_location(div9, file$1, 70, 8, 2462);
+    			add_location(div10, file$1, 74, 12, 2586);
+    			attr_dev(div11, "class", "panel svelte-8egyot");
+    			add_location(div11, file$1, 73, 8, 2554);
+    			attr_dev(div12, "class", "col-4");
+    			add_location(div12, file$1, 66, 4, 2361);
+    			attr_dev(div13, "class", "row");
+    			add_location(div13, file$1, 28, 0, 884);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -11812,8 +11872,8 @@ var app = (function () {
     			append_dev(div2, div1);
     			append_dev(div1, div0);
     			insert_dev(target, t1, anchor);
-    			insert_dev(target, div7, anchor);
-    			append_dev(div7, div6);
+    			insert_dev(target, div13, anchor);
+    			append_dev(div13, div6);
     			append_dev(div6, div3);
     			append_dev(div6, t3);
     			append_dev(div6, div4);
@@ -11828,6 +11888,18 @@ var app = (function () {
     			}
 
     			append_dev(div5, each_1_anchor);
+    			append_dev(div13, t8);
+    			append_dev(div13, div7);
+    			append_dev(div13, t9);
+    			append_dev(div13, div12);
+    			append_dev(div12, div8);
+    			append_dev(div12, t11);
+    			append_dev(div12, div9);
+    			append_dev(div12, t13);
+    			append_dev(div12, div11);
+    			append_dev(div11, div10);
+    			append_dev(div10, t14);
+    			append_dev(div10, t15);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
@@ -11860,6 +11932,8 @@ var app = (function () {
 
     				check_outros();
     			}
+
+    			if ((!current || dirty & /*$gamedata*/ 1) && t15_value !== (t15_value = /*$gamedata*/ ctx[0].meta.records.totalEvents + "")) set_data_dev(t15, t15_value);
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -11882,7 +11956,7 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div2);
     			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(div7);
+    			if (detaching) detach_dev(div13);
     			destroy_each(each_blocks, detaching);
     		}
     	};

@@ -1,6 +1,8 @@
 import DataController from "../Controllers/DataController";
 import LoopController from "../Controllers/LoopController";
+import TimeController from "../Controllers/TimeController";
 import type { Gamedata, gamedata } from "../Storage/gamedata";
+import { pushLog } from "../Storage/logs";
 import { hooks } from "../Storage/loopHooks";
 import { tap } from "../Tools/tap";
 
@@ -8,6 +10,7 @@ const buildings: BuildingModel[] = [
     {
         name: 'Chain of events', 
         unlocksAt: (gd) => gd.data.amount >= 10,
+        condition: (gd) => true,
         onetime: true,
         price: 15,
         onActive: () => (hooks.update(h => {
@@ -24,6 +27,7 @@ const buildings: BuildingModel[] = [
     {
         name: 'Careful observation', 
         unlocksAt: (gd) => gd.data.amount >= 5,
+        condition: (gd) => true,
         onetime: true,
         price: 10,
         onActive: () => (hooks.update(h => {
@@ -39,6 +43,7 @@ const buildings: BuildingModel[] = [
     {
         name: 'Probability manipulator',
         unlocksAt: (gd) => gd.loops.current.progress.time > 10_000,
+        condition: (gd) => gd.loops.current.progress.time > 10_000,
         onetime: true,
         price: 15,
         onActive: () => (hooks.update(h => {
@@ -56,13 +61,18 @@ const buildings: BuildingModel[] = [
     {
         name: 'Timeline wrapper',
         unlocksAt: (gd) => gd.meta.records.totalEvents > 100,
+        condition: (gd) => true,
         onetime: true,
         price: 50,
         onActive: () => (hooks.update(h => {
-            h.onEventRoll.push((gd, occurstAt, now) => {
-                if (Math.random() <= 0.1) {
+            h.onEventConsumed.push((gd) => {
+                const roll = Math.random();
+                console.log('roll' + roll);
+                if (roll <= 0.1) {
+                    console.log('wraped');
+                    pushLog('Timeline wrapper forced new event to appear on timeline', TimeController.now())
                     const index = Math.floor(Math.random()*gd.loops.current.events.length);
-                    LoopController.addEvent(index)
+                    LoopController.addEvent(2000);
                 }
             })
             h.onIncome.push((gd, income) => {
@@ -72,10 +82,11 @@ const buildings: BuildingModel[] = [
             });
             return h;
         })),
-        description: 'Add 10% chance to spawn one more event after any of currently queued events',
+        description: 'Add 10% chance to spawn one more event 2 seconds from now whenever you analyze an event',
         toAuto: 10,
         explainedCondition: 'once timer reached 10 seconds'
-    }
+    },
+
 ];
 
 
@@ -88,6 +99,7 @@ type BuildingModel = {
     description: string,
     onetime: boolean,
     unlocksAt: (gd: Gamedata) => boolean,
+    condition: (gd: Gamedata) => boolean,
     onActive: Function,
     toAuto: number,
     explainedCondition: string,

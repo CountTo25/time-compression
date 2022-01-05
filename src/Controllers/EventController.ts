@@ -1,16 +1,19 @@
 import events from "../Models/Events";
 import { Gamedata, gamedata } from "../Storage/gamedata";
 import { Log, logs, pushLog } from "../Storage/logs";
+import { Hooks, hooks } from "../Storage/loopHooks";
 import initializeController from "../Tools/initializeController";
 import { Controller } from "./Support/Controller";
 
 class EventController extends Controller {
     protected wrapped = [
         {key: 'gamedata', source: gamedata},
-        {key: 'logs', source: logs}
+        {key: 'logs', source: logs},
+        {key: 'hooks', source: hooks},
     ];
     private gamedata!: Gamedata;
     private logs!: Log[];
+    private hooks: Hooks;
 
     public serveEvent() {
 
@@ -33,6 +36,11 @@ class EventController extends Controller {
     {
         if (index > this.gamedata.events.stored.length - 1) {return;}
         const event = this.resolveEvent(this.gamedata.events.stored[index].payload);
+
+        for (const hook of this.hooks.onEventConsumed) {
+            hook(this.gamedata);
+        }
+
         let deltaData = 0;
         if (event === null) {return}
         if (event.effect !== null) {deltaData = event.effect()}

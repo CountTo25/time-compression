@@ -28,6 +28,10 @@ class TimeController extends Controller {
         const time = fresh ? evt.occursAt : evt.at;
         return this.toPrintable(time);
     }
+
+    public now(): number {
+        return this.gamedata.loops.current.progress.time;
+    }
 }
 
 export default initializeController<TimeController>(TimeController);

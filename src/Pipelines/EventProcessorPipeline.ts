@@ -1,6 +1,6 @@
 import Pipeline from "./Pipeline";
 
-export default class EventDispatchPipeline extends Pipeline
+export default class EventProcessorPipeline extends Pipeline
 {
     //public work()
 
@@ -20,4 +20,4 @@ export default class EventDispatchPipeline extends Pipeline
 }
 
 type EventDispatchPipeWorker = (number) => number
-type Pipeable = (_new: EventDispatchPipeline) => EventDispatchPipeline
+type Pipeable = (_new: EventProcessorPipeline) => EventProcessorPipeline

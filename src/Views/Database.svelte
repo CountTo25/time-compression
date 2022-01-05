@@ -59,7 +59,21 @@ $: gamedata, (() => {
             </div>
         {/each}
         {/key}
+        </div>
     </div>
+    <div class='col-4'>
+
+    </div>
+    <div class='col-4'>
+        <div class='title text-center'>
+            Stats
+        </div>
+        <div class='fw-100 text-center'>
+            Inspect your stats here
+        </div>
+        <div class='panel'>
+            <div>Total events: {$gamedata.meta.records.totalEvents}</div>
+        </div>
     </div>
 </div>
 

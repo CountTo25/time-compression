@@ -1,7 +1,7 @@
 import buildings from "../Models/Buildings";
 import EventDispatchPipeline from "../Pipelines/EventDispatchPipeline";
 import { Gamedata, gamedata } from "../Storage/gamedata";
-import { Hooks, hooks } from "../Storage/loopHooks";
+import { empty, Hooks, hooks } from "../Storage/loopHooks";
 import tickers, {clearTickers, pushListener} from "../Storage/tickers";
 import { toRender } from "../Storage/timeline";
 import initializeController from "../Tools/initializeController";
@@ -64,8 +64,11 @@ class LoopController extends Controller {
     }
 
     private rehook() {
-        this.hooks = {onEventRoll: [], onIncome: []};
-        hooks.set(this.hooks);
+        hooks.set({
+            onEventConsumed: [],
+            onEventRoll: [],
+            onIncome: [],
+        });
         for (const key in this.gamedata.loops.current.buildings) {
             buildings.filter(b => b.name === key)[0].onActive();
         }
@@ -188,18 +191,20 @@ class LoopController extends Controller {
         this.rehook();
     }
 
-    public addEvent(related: number = null, distance: number = null): void
+    public addEvent(delay: number = null): void
     {
+        let related = null;
+        let distance = null;
         const baseDiff = 1000; //TODO: remake formula
         const events = this.gamedata.loops.current.events;
         if (related === null) {related = events.length - 1};
         let occursAt = 0;
-        if (distance === null) {
+        if (delay === null) {
             occursAt = 
                 events[related].occursAt 
                 + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
         } else {
-            occursAt = events[related].occursAt + distance;
+            occursAt = this.gamedata.loops.current.progress.time + delay;
         }
 
         const payload = EventController.getRandomEvent().name;
