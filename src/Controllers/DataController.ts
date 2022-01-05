@@ -31,10 +31,11 @@ class DataController extends Controller {
 
     public purchaseBuilding(ref: string): void
     {
-        const building = buildings.filter(b => b.name === ref && (b.unlocksAt(this.gamedata) || b.name in this.gamedata.knowledge.buildings.purchased))[0]
-        if (!building) {throw 'eeeeeeeh'}
+        const building = buildings.filter(b => b.name === ref && (b.unlocksAt(this.gamedata) && b.name in this.gamedata.knowledge.buildings.purchased))[0]
+        if (!building) {return;}
         if (this.gamedata.data.amount < building.price) {return;} //todo popups
         if (building.onetime && (building.name in this.gamedata.loops.current.buildings)) {return;}
+        //if (!building.unlocksAt(this.gamedata)) {return;}
         this.gamedata.data.amount -= building.price;
         if (!(building.name in this.gamedata.loops.current.buildings)) {
             this.gamedata.loops.current.buildings[building.name] = 0;
