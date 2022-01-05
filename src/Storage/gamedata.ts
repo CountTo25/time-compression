@@ -1,6 +1,5 @@
 import moment from "moment";
 import { writable, Writable } from "svelte/store";
-import buildings from "../Models/Buildings";
 
 export const gamedata: Writable<Gamedata> = writable({
     events: {
@@ -52,6 +51,8 @@ export const gamedata: Writable<Gamedata> = writable({
         records: {
             longestLoop: 0,
             eventsPerLoop: 0,
+            totalLoops: 0,
+            totalEvents: 0,
         },
         totals: {
             loops: 0,
@@ -103,6 +104,8 @@ export type Gamedata = {
         records: {
             longestLoop: number,
             eventsPerLoop: number,
+            totalLoops: number,
+            totalEvents: number,
         }
         totals: {
             loops: number,

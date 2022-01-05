@@ -17,7 +17,7 @@ $: stubCount = $gamedata.loops.maxCompleted - $gamedata.loops.completed.length;
     <div class='col-12 text-center'>
         <div class='row px-0'>
             {#each $gamedata.loops.completed as loop}
-                <div class='col-4'>
+                <div class='col-4 mb-2'>
                     <div class='panel'>
                         <div class='oswld loop-title'>Loop #{loop.increment}</div>
                         <div>Takes {TimeController.toPrintable(loop.duration)} to produce {loop.bakedIncome} data</div>
@@ -42,7 +42,7 @@ $: stubCount = $gamedata.loops.maxCompleted - $gamedata.loops.completed.length;
                 </div>
             {/each}
             {#each Array(stubCount) as _, i}
-            <div class='col-4'>
+            <div class='col-4 mb-2'>
                 <div class='panel text-center'>
                     empty slot
                 </div>

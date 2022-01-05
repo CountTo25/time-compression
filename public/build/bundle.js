@@ -1039,112 +1039,26 @@ var app = (function () {
     	}
     }
 
-    const subscriber_queue = [];
-    /**
-     * Create a `Writable` store that allows both updating and reading by subscription.
-     * @param {*=}value initial value
-     * @param {StartStopNotifier=}start start and stop notifications for subscriptions
-     */
-    function writable(value, start = noop) {
-        let stop;
-        const subscribers = new Set();
-        function set(new_value) {
-            if (safe_not_equal(value, new_value)) {
-                value = new_value;
-                if (stop) { // store is ready
-                    const run_queue = !subscriber_queue.length;
-                    for (const subscriber of subscribers) {
-                        subscriber[1]();
-                        subscriber_queue.push(subscriber, value);
-                    }
-                    if (run_queue) {
-                        for (let i = 0; i < subscriber_queue.length; i += 2) {
-                            subscriber_queue[i][0](subscriber_queue[i + 1]);
-                        }
-                        subscriber_queue.length = 0;
-                    }
-                }
-            }
-        }
-        function update(fn) {
-            set(fn(value));
-        }
-        function subscribe(run, invalidate = noop) {
-            const subscriber = [run, invalidate];
-            subscribers.add(subscriber);
-            if (subscribers.size === 1) {
-                stop = start(set) || noop;
-            }
-            run(value);
-            return () => {
-                subscribers.delete(subscriber);
-                if (subscribers.size === 0) {
-                    stop();
-                    stop = null;
-                }
-            };
-        }
-        return { set, update, subscribe };
+    class Pipeline {
     }
 
-    const empty = {
-        onEventRoll: [],
-        onIncome: [],
-    };
-    const hooks = writable(empty);
-
-    const buildings = [
-        {
-            name: 'Chain of events',
-            unlocksAt: (gd) => gd.data.amount >= 10,
-            onetime: true,
-            price: 15,
-            onActive: () => (hooks.update(h => {
-                h.onEventRoll.push((gd, o, now) => {
-                    const diff = o.occursAt - now;
-                    if (diff > 0) {
-                        o.occursAt -= 100;
-                    }
-                });
-                return h;
-            })),
-            description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`,
-            toAuto: 5,
-            explainedCondition: 'whenever you have more than 10 data on hands'
-        },
-        {
-            name: 'Careful observation',
-            unlocksAt: (gd) => gd.data.amount >= 5,
-            onetime: true,
-            price: 10,
-            onActive: () => (hooks.update(h => {
-                h.onIncome.push((gd, income) => {
-                    income.value += 1;
-                });
-                return h;
-            })),
-            description: 'Use your knowledge on to predict what actions lead to which events',
-            toAuto: 5,
-            explainedCondition: 'when you have more than 5 data'
-        },
-        {
-            name: 'Probability manipulator',
-            unlocksAt: (gd) => gd.loops.current.progress.time > 10000,
-            onetime: true,
-            price: 15,
-            onActive: () => (hooks.update(h => {
-                h.onIncome.push((gd, income) => {
-                    if (Math.random() > 0.5) {
-                        income.value *= 2;
-                    }
-                });
-                return h;
-            })),
-            description: 'Manipulate probabilities to allow any data income to be doubled with 50% chance',
-            toAuto: 10,
-            explainedCondition: 'once timer reached 10 seconds'
+    class EventDispatchPipeline extends Pipeline {
+        constructor() {
+            //public work()
+            super(...arguments);
+            this.members = [];
         }
-    ];
+        pushMember(_new) {
+            this.members.push(_new);
+        }
+        run(diff) {
+            this.diff = diff;
+            for (const pipe of this.members) {
+                pipe(this);
+            }
+            return this.diff;
+        }
+    }
 
     var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -6821,6 +6735,54 @@ var app = (function () {
     })));
     });
 
+    const subscriber_queue = [];
+    /**
+     * Create a `Writable` store that allows both updating and reading by subscription.
+     * @param {*=}value initial value
+     * @param {StartStopNotifier=}start start and stop notifications for subscriptions
+     */
+    function writable(value, start = noop) {
+        let stop;
+        const subscribers = new Set();
+        function set(new_value) {
+            if (safe_not_equal(value, new_value)) {
+                value = new_value;
+                if (stop) { // store is ready
+                    const run_queue = !subscriber_queue.length;
+                    for (const subscriber of subscribers) {
+                        subscriber[1]();
+                        subscriber_queue.push(subscriber, value);
+                    }
+                    if (run_queue) {
+                        for (let i = 0; i < subscriber_queue.length; i += 2) {
+                            subscriber_queue[i][0](subscriber_queue[i + 1]);
+                        }
+                        subscriber_queue.length = 0;
+                    }
+                }
+            }
+        }
+        function update(fn) {
+            set(fn(value));
+        }
+        function subscribe(run, invalidate = noop) {
+            const subscriber = [run, invalidate];
+            subscribers.add(subscriber);
+            if (subscribers.size === 1) {
+                stop = start(set) || noop;
+            }
+            run(value);
+            return () => {
+                subscribers.delete(subscriber);
+                if (subscribers.size === 0) {
+                    stop();
+                    stop = null;
+                }
+            };
+        }
+        return { set, update, subscribe };
+    }
+
     const gamedata = writable({
         events: {
             capacity: 5,
@@ -6867,6 +6829,8 @@ var app = (function () {
             records: {
                 longestLoop: 0,
                 eventsPerLoop: 0,
+                totalLoops: 0,
+                totalEvents: 0,
             },
             totals: {
                 loops: 0,
@@ -6875,16 +6839,21 @@ var app = (function () {
         }
     });
 
-    const logs = writable([]);
-    function pushLog(text, timestamp) {
-        logs.update(logs => {
-            if (logs.length >= 5) {
-                logs.pop();
-            }
-            logs.unshift({ text, timestamp });
-            return logs;
-        });
+    const empty = {
+        onEventRoll: [],
+        onIncome: [],
+    };
+    const hooks = writable(empty);
+
+    const tickers = writable([]);
+    function clearTickers() {
+        tickers.set([]);
     }
+    function pushListener(_new) {
+        tickers.update(tickers => [...tickers, _new]);
+    }
+
+    const toRender = writable([]);
 
     function initializeController (c) {
         /** @ts-ignore */
@@ -6907,87 +6876,6 @@ var app = (function () {
             this.wrapped.find(w => w.key === name).source.set(this[name]);
         }
     }
-
-    class DataController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-                { key: 'hooks', source: hooks },
-            ];
-        }
-        awardData(amount, muteHooks = false) {
-            let value = { value: amount };
-            if (!muteHooks) {
-                for (const hook of this.hooks.onIncome) {
-                    hook(this.gamedata, value);
-                }
-            }
-            this.gamedata.data.amount += value.value;
-            this.gamedata.loops.current.dataDelta += value.value;
-            this.gamedata.cycles.current.totalData += value.value;
-            gamedata.set(this.gamedata);
-            return value.value;
-        }
-        purchaseBuilding(ref) {
-            const building = buildings.filter(b => b.name === ref && b.unlocksAt(this.gamedata))[0];
-            if (!building) {
-                throw 'eeeeeeeh';
-            }
-            if (this.gamedata.data.amount < building.price) {
-                return;
-            } //todo popups
-            if (building.onetime && (building.name in this.gamedata.loops.current.buildings)) {
-                return;
-            }
-            this.gamedata.data.amount -= building.price;
-            if (!(building.name in this.gamedata.loops.current.buildings)) {
-                this.gamedata.loops.current.buildings[building.name] = 0;
-            }
-            this.gamedata.loops.current.buildings[building.name]++;
-            if (!(building.name in this.gamedata.knowledge.buildings.purchased)) {
-                this.gamedata.knowledge.buildings.purchased[building.name] = 0;
-            }
-            this.gamedata.knowledge.buildings.purchased[building.name]++;
-            building.onActive();
-            gamedata.set(this.gamedata);
-        }
-        getPurchaseableBuildings() {
-            return buildings.filter(b => (!b.onetime ? true : !(b.name in this.gamedata.loops.current.buildings)) && b.unlocksAt(this.gamedata));
-        }
-    }
-    var DataController$1 = initializeController(DataController);
-
-    class Pipeline {
-    }
-
-    class EventDispatchPipeline extends Pipeline {
-        constructor() {
-            //public work()
-            super(...arguments);
-            this.members = [];
-        }
-        pushMember(_new) {
-            this.members.push(_new);
-        }
-        run(diff) {
-            this.diff = diff;
-            for (const pipe of this.members) {
-                pipe(this);
-            }
-            return this.diff;
-        }
-    }
-
-    const tickers = writable([]);
-    function clearTickers() {
-        tickers.set([]);
-    }
-    function pushListener(_new) {
-        tickers.update(tickers => [...tickers, _new]);
-    }
-
-    const toRender = writable([]);
 
     class StoredLoopController extends Controller {
         constructor() {
@@ -7057,7 +6945,35 @@ var app = (function () {
             turnsOnAt: EventDispatchPipeline,
             effect: (pipe) => pipe.diff *= 0.9
         },
+        {
+            name: 'Event processor',
+            price: 10,
+            description: 'Automatically process 1 event every 5 seconds',
+            unlocksAt: (gd) => gd.datasets.amount >= 5,
+            turnsOnAt: null,
+            effect: null,
+        },
+        {
+            name: 'Improved storage',
+            price: 5,
+            description: 'Increase recorded loop storage by one',
+            unlocksAt: (gd) => gd.datasets.amount >= 3,
+            turnsOnAt: null,
+            effect: null,
+            onPurchase: (gd) => gd.loops.maxCompleted++,
+        }
     ];
+
+    const logs = writable([]);
+    function pushLog(text, timestamp) {
+        logs.update(logs => {
+            if (logs.length >= 5) {
+                logs.pop();
+            }
+            logs.unshift({ text, timestamp });
+            return logs;
+        });
+    }
 
     function deepmerge (target, source) {
         console.log(target);
@@ -7141,7 +7057,7 @@ var app = (function () {
             ];
         }
         getModifications() {
-            return modifications.filter(m => m.unlocksAt(this.gamedata));
+            return modifications.filter(m => m.unlocksAt(this.gamedata) || this.gamedata.timeMachine.modifications.includes(m.name));
         }
         isModificationOwned(name) {
             return this.gamedata.timeMachine.modifications.includes(name);
@@ -7157,6 +7073,9 @@ var app = (function () {
             }
             this.gamedata.datasets.amount -= mod.price;
             this.gamedata.timeMachine.modifications.push(mod.name);
+            if (mod.onPurchase !== undefined) {
+                mod.onPurchase(this.gamedata);
+            }
             gamedata.set(this.gamedata);
         }
         getOwnedModifications() {
@@ -7314,6 +7233,7 @@ var app = (function () {
                     }
                 }
             }
+            this.autobuy();
             gamedata.set(this.gamedata);
         }
         togglePause() {
@@ -7336,6 +7256,9 @@ var app = (function () {
             }, 100);
         }
         autobuy() {
+            if (!this.gamedata.loops.current.fresh) {
+                return;
+            }
             for (const building of this.gamedata.knowledge.buildings.auto) {
                 DataController$1.purchaseBuilding(building);
             }
@@ -7344,11 +7267,21 @@ var app = (function () {
             this.restartInterval();
             this.rehook();
         }
-        addEvent() {
+        addEvent(related = null, distance = null) {
             const baseDiff = 1000; //TODO: remake formula
             const events = this.gamedata.loops.current.events;
-            const occursAt = events[events.length - 1].occursAt
-                + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+            if (related === null) {
+                related = events.length - 1;
+            }
+            let occursAt = 0;
+            if (distance === null) {
+                occursAt =
+                    events[related].occursAt
+                        + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+            }
+            else {
+                occursAt = events[related].occursAt + distance;
+            }
             const payload = EventController$1.getRandomEvent().name;
             const wrapped = { occursAt };
             for (const hook of this.hooks.onEventRoll) {
@@ -7408,22 +7341,149 @@ var app = (function () {
     }
     var LoopController$1 = initializeController(LoopController);
 
+    const buildings = [
+        {
+            name: 'Chain of events',
+            unlocksAt: (gd) => gd.data.amount >= 10,
+            onetime: true,
+            price: 15,
+            onActive: () => (hooks.update(h => {
+                h.onEventRoll.push((gd, o, now) => {
+                    const diff = o.occursAt - now;
+                    if (diff > 0) {
+                        o.occursAt -= 100;
+                    }
+                });
+                return h;
+            })),
+            description: `Use your knowledge on to predict what actions lead to which events<br>Reduce new events spawn time by 0.1s`,
+            toAuto: 5,
+            explainedCondition: 'whenever you have more than 10 data on hands'
+        },
+        {
+            name: 'Careful observation',
+            unlocksAt: (gd) => gd.data.amount >= 5,
+            onetime: true,
+            price: 10,
+            onActive: () => (hooks.update(h => {
+                h.onIncome.push((gd, income) => {
+                    income.value += 1;
+                });
+                return h;
+            })),
+            description: 'Use your knowledge on to predict what actions lead to which events',
+            toAuto: 5,
+            explainedCondition: 'when you have more than 5 data'
+        },
+        {
+            name: 'Probability manipulator',
+            unlocksAt: (gd) => gd.loops.current.progress.time > 10000,
+            onetime: true,
+            price: 15,
+            onActive: () => (hooks.update(h => {
+                h.onIncome.push((gd, income) => {
+                    if (Math.random() > 0.5) {
+                        income.value *= 2;
+                    }
+                });
+                return h;
+            })),
+            description: 'Manipulate probabilities to allow any data income to be doubled with 50% chance',
+            toAuto: 10,
+            explainedCondition: 'once timer reached 10 seconds'
+        },
+        {
+            name: 'Timeline wrapper',
+            unlocksAt: (gd) => gd.meta.records.totalEvents > 100,
+            onetime: true,
+            price: 50,
+            onActive: () => (hooks.update(h => {
+                h.onEventRoll.push((gd, occurstAt, now) => {
+                    if (Math.random() <= 0.1) {
+                        const index = Math.floor(Math.random() * gd.loops.current.events.length);
+                        LoopController$1.addEvent(index);
+                    }
+                });
+                h.onIncome.push((gd, income) => {
+                    if (Math.random() <= 0.5) {
+                        income.value *= 2;
+                    }
+                });
+                return h;
+            })),
+            description: 'Add 10% chance to spawn one more event after any of currently queued events',
+            toAuto: 10,
+            explainedCondition: 'once timer reached 10 seconds'
+        }
+    ];
+
+    class DataController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+                { key: 'hooks', source: hooks },
+            ];
+        }
+        awardData(amount, muteHooks = false) {
+            let value = { value: amount };
+            if (!muteHooks) {
+                for (const hook of this.hooks.onIncome) {
+                    hook(this.gamedata, value);
+                }
+            }
+            this.gamedata.data.amount += value.value;
+            this.gamedata.loops.current.dataDelta += value.value;
+            this.gamedata.cycles.current.totalData += value.value;
+            gamedata.set(this.gamedata);
+            return value.value;
+        }
+        purchaseBuilding(ref) {
+            const building = buildings.filter(b => b.name === ref && (b.unlocksAt(this.gamedata) || b.name in this.gamedata.knowledge.buildings.purchased))[0];
+            if (!building) {
+                throw 'eeeeeeeh';
+            }
+            if (this.gamedata.data.amount < building.price) {
+                return;
+            } //todo popups
+            if (building.onetime && (building.name in this.gamedata.loops.current.buildings)) {
+                return;
+            }
+            this.gamedata.data.amount -= building.price;
+            if (!(building.name in this.gamedata.loops.current.buildings)) {
+                this.gamedata.loops.current.buildings[building.name] = 0;
+            }
+            this.gamedata.loops.current.buildings[building.name]++;
+            if (!(building.name in this.gamedata.knowledge.buildings.purchased)) {
+                this.gamedata.knowledge.buildings.purchased[building.name] = 0;
+            }
+            this.gamedata.knowledge.buildings.purchased[building.name]++;
+            building.onActive();
+            gamedata.set(this.gamedata);
+        }
+        getPurchaseableBuildings() {
+            return buildings.filter(b => (!b.onetime ? true : !(b.name in this.gamedata.loops.current.buildings)) && b.unlocksAt(this.gamedata));
+        }
+    }
+    var DataController$1 = initializeController(DataController);
+
     const events = [
         {
             name: 'Observation',
             effect: () => DataController$1.awardData(1),
             messages: [
-                'An event occured, providing you some data about this world',
-                'By observing this cycle\'s flow, you obtained more data'
+                'An event was recorded, providing you some data about this world',
+                'By observing this cycle\'s flow, you obtained more data',
+                'Watching over this iteration gave you some valuable data',
             ],
             unlocksAt: (gd) => true,
-            weight: 5,
+            weight: 7,
         },
         {
-            name: 'Oddity',
+            name: 'Noise',
             effect: null,
             messages: [
-                'Your reading seems to provide some unknown data. You omit this record',
+                'Your reading seems to provide some malformed data. You omit this record',
                 'This iteration produced unreadable data. Throwing it away to keep database safe',
             ],
             unlocksAt: (gd) => true,
@@ -7437,7 +7497,7 @@ var app = (function () {
             ],
             unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings,
             weight: 2,
-        }
+        },
     ];
 
     class EventController extends Controller {
@@ -7486,6 +7546,7 @@ var app = (function () {
                 consumed: false,
             });
             this.gamedata.events.stored.splice(index, 1);
+            this.gamedata.meta.records.totalEvents++;
             gamedata.set(this.gamedata);
         }
         getRandomEvent() {
@@ -8384,8 +8445,14 @@ var app = (function () {
     	return child_ctx;
     }
 
+    function get_each_context_1$2(ctx, list, i) {
+    	const child_ctx = ctx.slice();
+    	child_ctx[6] = list[i];
+    	return child_ctx;
+    }
+
     // (13:4) {#if purchaseable.length === 0}
-    function create_if_block_1$1(ctx) {
+    function create_if_block_2$1(ctx) {
     	let t;
 
     	const block = {
@@ -8402,7 +8469,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block_1$1.name,
+    		id: create_if_block_2$1.name,
     		type: "if",
     		source: "(13:4) {#if purchaseable.length === 0}",
     		ctx
@@ -8442,18 +8509,18 @@ var app = (function () {
     }
 
     // (28:20) {#if $gamedata.loops.current.fresh}
-    function create_if_block$5(ctx) {
+    function create_if_block_1$1(ctx) {
     	let button;
     	let current;
 
     	function click_handler() {
-    		return /*click_handler*/ ctx[2](/*building*/ ctx[3]);
+    		return /*click_handler*/ ctx[2](/*building*/ ctx[6]);
     	}
 
     	button = new Button({
     			props: {
     				mw: true,
-    				inactive: /*$gamedata*/ ctx[0].data.amount < /*building*/ ctx[3].price,
+    				inactive: /*$gamedata*/ ctx[0].data.amount < /*building*/ ctx[6].price,
     				$$slots: { default: [create_default_slot$6] },
     				$$scope: { ctx }
     			},
@@ -8473,9 +8540,9 @@ var app = (function () {
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
     			const button_changes = {};
-    			if (dirty & /*$gamedata, purchaseable*/ 3) button_changes.inactive = /*$gamedata*/ ctx[0].data.amount < /*building*/ ctx[3].price;
+    			if (dirty & /*$gamedata, purchaseable*/ 3) button_changes.inactive = /*$gamedata*/ ctx[0].data.amount < /*building*/ ctx[6].price;
 
-    			if (dirty & /*$$scope*/ 64) {
+    			if (dirty & /*$$scope*/ 512) {
     				button_changes.$$scope = { dirty, ctx };
     			}
 
@@ -8497,7 +8564,7 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_if_block$5.name,
+    		id: create_if_block_1$1.name,
     		type: "if",
     		source: "(28:20) {#if $gamedata.loops.current.fresh}",
     		ctx
@@ -8534,28 +8601,27 @@ var app = (function () {
     }
 
     // (16:4) {#each purchaseable as building}
-    function create_each_block$6(ctx) {
+    function create_each_block_1$2(ctx) {
     	let div6;
     	let div0;
-    	let t0_value = /*building*/ ctx[3].name + "";
+    	let t0_value = /*building*/ ctx[6].name + "";
     	let t0;
     	let t1;
     	let div1;
-    	let raw_value = /*building*/ ctx[3].description + "";
+    	let raw_value = /*building*/ ctx[6].description + "";
     	let t2;
     	let div5;
     	let div4;
     	let div2;
-    	let t3_value = /*building*/ ctx[3].price + "";
+    	let t3_value = /*building*/ ctx[6].price + "";
     	let t3;
     	let t4;
     	let t5;
     	let div3;
     	let current_block_type_index;
     	let if_block;
-    	let t6;
     	let current;
-    	const if_block_creators = [create_if_block$5, create_else_block$4];
+    	const if_block_creators = [create_if_block_1$1, create_else_block$4];
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
@@ -8582,7 +8648,6 @@ var app = (function () {
     			t5 = space();
     			div3 = element("div");
     			if_block.c();
-    			t6 = space();
     			attr_dev(div0, "class", "subtitle oswld svelte-1iuzwq1");
     			add_location(div0, file$6, 17, 8, 711);
     			attr_dev(div1, "class", "description text-start svelte-1iuzwq1");
@@ -8614,12 +8679,11 @@ var app = (function () {
     			append_dev(div4, t5);
     			append_dev(div4, div3);
     			if_blocks[current_block_type_index].m(div3, null);
-    			append_dev(div6, t6);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
-    			if ((!current || dirty & /*purchaseable*/ 2) && t0_value !== (t0_value = /*building*/ ctx[3].name + "")) set_data_dev(t0, t0_value);
-    			if ((!current || dirty & /*purchaseable*/ 2) && raw_value !== (raw_value = /*building*/ ctx[3].description + "")) div1.innerHTML = raw_value;			if ((!current || dirty & /*purchaseable*/ 2) && t3_value !== (t3_value = /*building*/ ctx[3].price + "")) set_data_dev(t3, t3_value);
+    			if ((!current || dirty & /*purchaseable*/ 2) && t0_value !== (t0_value = /*building*/ ctx[6].name + "")) set_data_dev(t0, t0_value);
+    			if ((!current || dirty & /*purchaseable*/ 2) && raw_value !== (raw_value = /*building*/ ctx[6].description + "")) div1.innerHTML = raw_value;			if ((!current || dirty & /*purchaseable*/ 2) && t3_value !== (t3_value = /*building*/ ctx[6].price + "")) set_data_dev(t3, t3_value);
     			let previous_block_index = current_block_type_index;
     			current_block_type_index = select_block_type(ctx);
 
@@ -8663,9 +8727,130 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block$6.name,
+    		id: create_each_block_1$2.name,
     		type: "each",
     		source: "(16:4) {#each purchaseable as building}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (42:4) {#if $gamedata.loops.current.fresh}
+    function create_if_block$5(ctx) {
+    	let each_1_anchor;
+    	let each_value = Object.keys(/*$gamedata*/ ctx[0].loops.current.buildings);
+    	validate_each_argument(each_value);
+    	let each_blocks = [];
+
+    	for (let i = 0; i < each_value.length; i += 1) {
+    		each_blocks[i] = create_each_block$6(get_each_context$6(ctx, each_value, i));
+    	}
+
+    	const block = {
+    		c: function create() {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
+    			}
+
+    			each_1_anchor = empty$1();
+    		},
+    		m: function mount(target, anchor) {
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(target, anchor);
+    			}
+
+    			insert_dev(target, each_1_anchor, anchor);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*Object, $gamedata*/ 1) {
+    				each_value = Object.keys(/*$gamedata*/ ctx[0].loops.current.buildings);
+    				validate_each_argument(each_value);
+    				let i;
+
+    				for (i = 0; i < each_value.length; i += 1) {
+    					const child_ctx = get_each_context$6(ctx, each_value, i);
+
+    					if (each_blocks[i]) {
+    						each_blocks[i].p(child_ctx, dirty);
+    					} else {
+    						each_blocks[i] = create_each_block$6(child_ctx);
+    						each_blocks[i].c();
+    						each_blocks[i].m(each_1_anchor.parentNode, each_1_anchor);
+    					}
+    				}
+
+    				for (; i < each_blocks.length; i += 1) {
+    					each_blocks[i].d(1);
+    				}
+
+    				each_blocks.length = each_value.length;
+    			}
+    		},
+    		d: function destroy(detaching) {
+    			destroy_each(each_blocks, detaching);
+    			if (detaching) detach_dev(each_1_anchor);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block$5.name,
+    		type: "if",
+    		source: "(42:4) {#if $gamedata.loops.current.fresh}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (43:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}
+    function create_each_block$6(ctx) {
+    	let div;
+    	let span0;
+    	let t0_value = /*owned*/ ctx[3] + "";
+    	let t0;
+    	let t1;
+    	let span1;
+    	let t3;
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			span0 = element("span");
+    			t0 = text(t0_value);
+    			t1 = space();
+    			span1 = element("span");
+    			span1.textContent = "(owned)";
+    			t3 = space();
+    			attr_dev(span0, "class", "oswld");
+    			add_location(span0, file$6, 44, 16, 1741);
+    			attr_dev(span1, "class", "fw-100");
+    			add_location(span1, file$6, 44, 51, 1776);
+    			attr_dev(div, "class", "upgrade-node my-1 svelte-1iuzwq1");
+    			add_location(div, file$6, 43, 12, 1693);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    			append_dev(div, span0);
+    			append_dev(span0, t0);
+    			append_dev(div, t1);
+    			append_dev(div, span1);
+    			append_dev(div, t3);
+    		},
+    		p: function update(ctx, dirty) {
+    			if (dirty & /*$gamedata*/ 1 && t0_value !== (t0_value = /*owned*/ ctx[3] + "")) set_data_dev(t0, t0_value);
+    		},
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_each_block$6.name,
+    		type: "each",
+    		source: "(43:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}",
     		ctx
     	});
 
@@ -8677,19 +8862,22 @@ var app = (function () {
     	let t1;
     	let div1;
     	let t2;
+    	let t3;
     	let current;
-    	let if_block = /*purchaseable*/ ctx[1].length === 0 && create_if_block_1$1(ctx);
-    	let each_value = /*purchaseable*/ ctx[1];
-    	validate_each_argument(each_value);
+    	let if_block0 = /*purchaseable*/ ctx[1].length === 0 && create_if_block_2$1(ctx);
+    	let each_value_1 = /*purchaseable*/ ctx[1];
+    	validate_each_argument(each_value_1);
     	let each_blocks = [];
 
-    	for (let i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block$6(get_each_context$6(ctx, each_value, i));
+    	for (let i = 0; i < each_value_1.length; i += 1) {
+    		each_blocks[i] = create_each_block_1$2(get_each_context_1$2(ctx, each_value_1, i));
     	}
 
     	const out = i => transition_out(each_blocks[i], 1, 1, () => {
     		each_blocks[i] = null;
     	});
+
+    	let if_block1 = /*$gamedata*/ ctx[0].loops.current.fresh && create_if_block$5(ctx);
 
     	const block = {
     		c: function create() {
@@ -8697,13 +8885,15 @@ var app = (function () {
     			div0.textContent = "Upgrades";
     			t1 = space();
     			div1 = element("div");
-    			if (if_block) if_block.c();
+    			if (if_block0) if_block0.c();
     			t2 = space();
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
+    			t3 = space();
+    			if (if_block1) if_block1.c();
     			attr_dev(div0, "class", "title");
     			add_location(div0, file$6, 10, 0, 466);
     			attr_dev(div1, "class", "wrap-stock mt-2 text-center svelte-1iuzwq1");
@@ -8716,59 +8906,74 @@ var app = (function () {
     			insert_dev(target, div0, anchor);
     			insert_dev(target, t1, anchor);
     			insert_dev(target, div1, anchor);
-    			if (if_block) if_block.m(div1, null);
+    			if (if_block0) if_block0.m(div1, null);
     			append_dev(div1, t2);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].m(div1, null);
     			}
 
+    			append_dev(div1, t3);
+    			if (if_block1) if_block1.m(div1, null);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
     			if (/*purchaseable*/ ctx[1].length === 0) {
-    				if (if_block) ; else {
-    					if_block = create_if_block_1$1(ctx);
-    					if_block.c();
-    					if_block.m(div1, t2);
+    				if (if_block0) ; else {
+    					if_block0 = create_if_block_2$1(ctx);
+    					if_block0.c();
+    					if_block0.m(div1, t2);
     				}
-    			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
+    			} else if (if_block0) {
+    				if_block0.d(1);
+    				if_block0 = null;
     			}
 
     			if (dirty & /*$gamedata, purchaseable, DataController*/ 3) {
-    				each_value = /*purchaseable*/ ctx[1];
-    				validate_each_argument(each_value);
+    				each_value_1 = /*purchaseable*/ ctx[1];
+    				validate_each_argument(each_value_1);
     				let i;
 
-    				for (i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context$6(ctx, each_value, i);
+    				for (i = 0; i < each_value_1.length; i += 1) {
+    					const child_ctx = get_each_context_1$2(ctx, each_value_1, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block$6(child_ctx);
+    						each_blocks[i] = create_each_block_1$2(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(div1, null);
+    						each_blocks[i].m(div1, t3);
     					}
     				}
 
     				group_outros();
 
-    				for (i = each_value.length; i < each_blocks.length; i += 1) {
+    				for (i = each_value_1.length; i < each_blocks.length; i += 1) {
     					out(i);
     				}
 
     				check_outros();
     			}
+
+    			if (/*$gamedata*/ ctx[0].loops.current.fresh) {
+    				if (if_block1) {
+    					if_block1.p(ctx, dirty);
+    				} else {
+    					if_block1 = create_if_block$5(ctx);
+    					if_block1.c();
+    					if_block1.m(div1, null);
+    				}
+    			} else if (if_block1) {
+    				if_block1.d(1);
+    				if_block1 = null;
+    			}
     		},
     		i: function intro(local) {
     			if (current) return;
 
-    			for (let i = 0; i < each_value.length; i += 1) {
+    			for (let i = 0; i < each_value_1.length; i += 1) {
     				transition_in(each_blocks[i]);
     			}
 
@@ -8787,8 +8992,9 @@ var app = (function () {
     			if (detaching) detach_dev(div0);
     			if (detaching) detach_dev(t1);
     			if (detaching) detach_dev(div1);
-    			if (if_block) if_block.d();
+    			if (if_block0) if_block0.d();
     			destroy_each(each_blocks, detaching);
+    			if (if_block1) if_block1.d();
     		}
     	};
 
@@ -9891,6 +10097,12 @@ var app = (function () {
             this.____sync('gamedata');
             return true;
         }
+        set(trigger) {
+            if (this.gamedata.meta.triggers.includes(trigger)) {
+                return;
+            }
+            this.gamedata.meta.triggers.push(trigger);
+        }
     }
     const c$2 = initializeController(TriggerController);
 
@@ -10844,17 +11056,17 @@ var app = (function () {
     			div3 = element("div");
     			create_component(progressbar.$$.fragment);
     			attr_dev(div0, "class", "oswld loop-title svelte-1dppvbc");
-    			add_location(div0, file$2, 18, 24, 741);
-    			add_location(div1, file$2, 19, 24, 824);
+    			add_location(div0, file$2, 18, 24, 746);
+    			add_location(div1, file$2, 19, 24, 829);
     			attr_dev(div2, "class", "col-4 my-auto");
-    			add_location(div2, file$2, 21, 28, 1000);
+    			add_location(div2, file$2, 21, 28, 1005);
     			attr_dev(div3, "class", "col-8 my-auto pb svelte-1dppvbc");
-    			add_location(div3, file$2, 27, 28, 1328);
+    			add_location(div3, file$2, 27, 28, 1333);
     			attr_dev(div4, "class", "row px-0 mt-2");
-    			add_location(div4, file$2, 20, 24, 944);
+    			add_location(div4, file$2, 20, 24, 949);
     			attr_dev(div5, "class", "panel svelte-1dppvbc");
-    			add_location(div5, file$2, 17, 20, 697);
-    			attr_dev(div6, "class", "col-4");
+    			add_location(div5, file$2, 17, 20, 702);
+    			attr_dev(div6, "class", "col-4 mb-2");
     			add_location(div6, file$2, 16, 16, 657);
     		},
     		m: function mount(target, anchor) {
@@ -10940,9 +11152,9 @@ var app = (function () {
     			div0.textContent = "empty slot";
     			t1 = space();
     			attr_dev(div0, "class", "panel text-center svelte-1dppvbc");
-    			add_location(div0, file$2, 42, 16, 2036);
-    			attr_dev(div1, "class", "col-4");
-    			add_location(div1, file$2, 41, 12, 2000);
+    			add_location(div0, file$2, 42, 16, 2046);
+    			attr_dev(div1, "class", "col-4 mb-2");
+    			add_location(div1, file$2, 41, 12, 2005);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div1, anchor);
@@ -11788,7 +12000,7 @@ var app = (function () {
     	return block;
     }
 
-    // (58:20) {:else}
+    // (59:20) {:else}
     function create_else_block$1(ctx) {
     	let div0;
     	let t0;
@@ -11806,6 +12018,7 @@ var app = (function () {
     	button = new Button({
     			props: {
     				mw: true,
+    				inactive: /*modification*/ ctx[6].price > /*$gamedata*/ ctx[0].datasets.amount,
     				$$slots: { default: [create_default_slot$1] },
     				$$scope: { ctx }
     			},
@@ -11823,9 +12036,9 @@ var app = (function () {
     			div1 = element("div");
     			create_component(button.$$.fragment);
     			attr_dev(div0, "class", "text-center oswld mt-1");
-    			add_location(div0, file, 58, 24, 2564);
+    			add_location(div0, file, 59, 24, 2598);
     			attr_dev(div1, "class", "text-center");
-    			add_location(div1, file, 59, 24, 2670);
+    			add_location(div1, file, 60, 24, 2704);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div0, anchor);
@@ -11840,6 +12053,7 @@ var app = (function () {
     			ctx = new_ctx;
     			if ((!current || dirty & /*renderableModifications*/ 8) && t1_value !== (t1_value = /*modification*/ ctx[6].price + "")) set_data_dev(t1, t1_value);
     			const button_changes = {};
+    			if (dirty & /*renderableModifications, $gamedata*/ 9) button_changes.inactive = /*modification*/ ctx[6].price > /*$gamedata*/ ctx[0].datasets.amount;
 
     			if (dirty & /*$$scope*/ 512) {
     				button_changes.$$scope = { dirty, ctx };
@@ -11868,14 +12082,14 @@ var app = (function () {
     		block,
     		id: create_else_block$1.name,
     		type: "else",
-    		source: "(58:20) {:else}",
+    		source: "(59:20) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (56:20) {#if TimeMachineController.isModificationOwned(modification.name)}
+    // (57:20) {#if TimeMachineController.isModificationOwned(modification.name)}
     function create_if_block$1(ctx) {
     	let div;
 
@@ -11884,7 +12098,7 @@ var app = (function () {
     			div = element("div");
     			div.textContent = "Owned";
     			attr_dev(div, "class", "text-center oswld");
-    			add_location(div, file, 56, 24, 2469);
+    			add_location(div, file, 57, 24, 2503);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -11901,14 +12115,14 @@ var app = (function () {
     		block,
     		id: create_if_block$1.name,
     		type: "if",
-    		source: "(56:20) {#if TimeMachineController.isModificationOwned(modification.name)}",
+    		source: "(57:20) {#if TimeMachineController.isModificationOwned(modification.name)}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (61:28) <Button                                  mw={true}                                  on:click={()=>TimeMachineController.buyModification(modification.name)}                             >
+    // (62:28) <Button                                  mw={true}                                  on:click={()=>TimeMachineController.buyModification(modification.name)}                                 inactive={modification.price > $gamedata.datasets.amount}                             >
     function create_default_slot$1(ctx) {
     	let t;
 
@@ -11928,7 +12142,7 @@ var app = (function () {
     		block,
     		id: create_default_slot$1.name,
     		type: "slot",
-    		source: "(61:28) <Button                                  mw={true}                                  on:click={()=>TimeMachineController.buyModification(modification.name)}                             >",
+    		source: "(62:28) <Button                                  mw={true}                                  on:click={()=>TimeMachineController.buyModification(modification.name)}                                 inactive={modification.price > $gamedata.datasets.amount}                             >",
     		ctx
     	});
 
@@ -11937,6 +12151,7 @@ var app = (function () {
 
     // (52:12) {#each renderableModifications as modification}
     function create_each_block(ctx) {
+    	let div3;
     	let div2;
     	let div0;
     	let t0_value = /*modification*/ ctx[6].name + "";
@@ -11965,6 +12180,7 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
+    			div3 = element("div");
     			div2 = element("div");
     			div0 = element("div");
     			t0 = text(t0_value);
@@ -11975,14 +12191,17 @@ var app = (function () {
     			if_block.c();
     			t4 = space();
     			attr_dev(div0, "class", "oswld text-center");
-    			add_location(div0, file, 53, 20, 2228);
+    			add_location(div0, file, 54, 20, 2262);
     			attr_dev(div1, "class", "fs-100");
-    			add_location(div1, file, 54, 20, 2305);
-    			attr_dev(div2, "class", "col-4 wrap-mod svelte-18mqlpt");
-    			add_location(div2, file, 52, 16, 2179);
+    			add_location(div1, file, 55, 20, 2339);
+    			attr_dev(div2, "class", "wrap-mod svelte-1xk6d8f");
+    			add_location(div2, file, 53, 20, 2219);
+    			attr_dev(div3, "class", "col-4");
+    			add_location(div3, file, 52, 16, 2179);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div2, anchor);
+    			insert_dev(target, div3, anchor);
+    			append_dev(div3, div2);
     			append_dev(div2, div0);
     			append_dev(div0, t0);
     			append_dev(div2, t1);
@@ -11990,7 +12209,7 @@ var app = (function () {
     			append_dev(div1, t2);
     			append_dev(div2, t3);
     			if_blocks[current_block_type_index].m(div2, null);
-    			append_dev(div2, t4);
+    			append_dev(div3, t4);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
@@ -12019,7 +12238,7 @@ var app = (function () {
     				}
 
     				transition_in(if_block, 1);
-    				if_block.m(div2, t4);
+    				if_block.m(div2, null);
     			}
     		},
     		i: function intro(local) {
@@ -12032,7 +12251,7 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div2);
+    			if (detaching) detach_dev(div3);
     			if_blocks[current_block_type_index].d();
     		}
     	};
@@ -12172,17 +12391,17 @@ var app = (function () {
     			attr_dev(div3, "class", "title text-center");
     			add_location(div3, file, 26, 12, 857);
     			add_location(br, file, 28, 122, 1087);
-    			attr_dev(div4, "class", "explanation text-center mt-2 svelte-18mqlpt");
+    			attr_dev(div4, "class", "explanation text-center mt-2 svelte-1xk6d8f");
     			add_location(div4, file, 27, 12, 922);
     			attr_dev(div5, "class", "title text-center mt-2");
     			add_location(div5, file, 31, 12, 1241);
     			attr_dev(div6, "class", "title text-center");
     			add_location(div6, file, 34, 12, 1354);
-    			attr_dev(div7, "class", "explanation text-center mt-2 svelte-18mqlpt");
+    			attr_dev(div7, "class", "explanation text-center mt-2 svelte-1xk6d8f");
     			add_location(div7, file, 37, 12, 1446);
     			attr_dev(div8, "class", "text-center mt-3");
     			add_location(div8, file, 40, 12, 1643);
-    			attr_dev(div9, "class", "panel svelte-18mqlpt");
+    			attr_dev(div9, "class", "panel svelte-1xk6d8f");
     			add_location(div9, file, 25, 8, 825);
     			attr_dev(div10, "class", "col-4");
     			add_location(div10, file, 24, 4, 797);
@@ -12192,7 +12411,7 @@ var app = (function () {
     			add_location(div12, file, 48, 12, 1970);
     			attr_dev(div13, "class", "row px-0");
     			add_location(div13, file, 49, 12, 2063);
-    			attr_dev(div14, "class", "panel svelte-18mqlpt");
+    			attr_dev(div14, "class", "panel svelte-1xk6d8f");
     			add_location(div14, file, 46, 8, 1875);
     			attr_dev(div15, "class", "col-8");
     			add_location(div15, file, 45, 4, 1847);
@@ -12262,7 +12481,7 @@ var app = (function () {
     			button.$set(button_changes);
     			if ((!current || dirty & /*$gamedata*/ 1) && t21_value !== (t21_value = /*$gamedata*/ ctx[0].datasets.amount + "")) set_data_dev(t21, t21_value);
 
-    			if (dirty & /*TimeMachineController, renderableModifications*/ 8) {
+    			if (dirty & /*TimeMachineController, renderableModifications, $gamedata*/ 9) {
     				each_value = /*renderableModifications*/ ctx[3];
     				validate_each_argument(each_value);
     				let i;

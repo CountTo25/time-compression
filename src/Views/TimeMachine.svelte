@@ -50,7 +50,8 @@ $:$gamedata,(() => {
             <div class='row px-0'>
                 
             {#each renderableModifications as modification}
-                <div class='col-4 wrap-mod'>
+                <div class='col-4'>
+                    <div class='wrap-mod'>
                     <div class='oswld text-center'>{modification.name}</div>
                     <div class='fs-100'>{modification.description}</div>
                     {#if TimeMachineController.isModificationOwned(modification.name)}
@@ -61,9 +62,11 @@ $:$gamedata,(() => {
                             <Button 
                                 mw={true} 
                                 on:click={()=>TimeMachineController.buyModification(modification.name)}
+                                inactive={modification.price > $gamedata.datasets.amount}
                             >buy</Button>
                         </div>
                     {/if}
+                    </div>
                 </div>
             {/each}
             </div>
@@ -85,5 +88,6 @@ $:$gamedata,(() => {
     .wrap-mod {
         padding: 5px;
         border: 2px solid white;
+        height: 100%;
     }
 </style>

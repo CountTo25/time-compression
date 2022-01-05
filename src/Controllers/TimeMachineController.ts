@@ -15,7 +15,7 @@ class TimeMachineController extends Controller {
     private gamedata!: Gamedata;
 
     public getModifications() {
-        return modifications.filter(m => m.unlocksAt(this.gamedata));
+        return modifications.filter(m => m.unlocksAt(this.gamedata) || this.gamedata.timeMachine.modifications.includes(m.name));
     }
 
     public isModificationOwned(name: string) {
@@ -28,6 +28,9 @@ class TimeMachineController extends Controller {
         if (mod.price > this.gamedata.datasets.amount) {return;}
         this.gamedata.datasets.amount-=mod.price;
         this.gamedata.timeMachine.modifications.push(mod.name);
+        if (mod.onPurchase !== undefined) {
+            mod.onPurchase(this.gamedata);
+        }
         gamedata.set(this.gamedata);
     }
 

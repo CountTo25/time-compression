@@ -9,17 +9,18 @@ const events: EventModel[] = [
         name: 'Observation', 
         effect: ()=>DataController.awardData(1),
         messages: [
-            'An event occured, providing you some data about this world',
-            'By observing this cycle\'s flow, you obtained more data'
+            'An event was recorded, providing you some data about this world',
+            'By observing this cycle\'s flow, you obtained more data',
+            'Watching over this iteration gave you some valuable data',
         ],
         unlocksAt: (gd) => true,
-        weight: 5,
+        weight: 7,
     },
     {
-        name: 'Oddity',
+        name: 'Noise',
         effect: null,
         messages: [
-            'Your reading seems to provide some unknown data. You omit this record',
+            'Your reading seems to provide some malformed data. You omit this record',
             'This iteration produced unreadable data. Throwing it away to keep database safe',
         ],
         unlocksAt: (gd) => true,
@@ -33,7 +34,7 @@ const events: EventModel[] = [
         ],
         unlocksAt: (gd) => 'Chain of events' in gd.loops.current.buildings,
         weight: 2,
-    }
+    },
 ];
 
 

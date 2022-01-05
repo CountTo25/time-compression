@@ -44,6 +44,13 @@ $: $gamedata,(()=>
         </div>
     </div>
     {/each}
+    {#if $gamedata.loops.current.fresh}
+        {#each Object.keys($gamedata.loops.current.buildings) as owned}
+            <div class='upgrade-node my-1'>
+                <span class='oswld'>{owned}</span> <span class='fw-100'>(owned)</span>
+            </div>
+        {/each}
+    {/if}
 </div>
 
 

@@ -1,4 +1,5 @@
 import DataController from "../Controllers/DataController";
+import LoopController from "../Controllers/LoopController";
 import type { Gamedata, gamedata } from "../Storage/gamedata";
 import { hooks } from "../Storage/loopHooks";
 import { tap } from "../Tools/tap";
@@ -49,6 +50,29 @@ const buildings: BuildingModel[] = [
             return h;
         })),
         description: 'Manipulate probabilities to allow any data income to be doubled with 50% chance',
+        toAuto: 10,
+        explainedCondition: 'once timer reached 10 seconds'
+    },
+    {
+        name: 'Timeline wrapper',
+        unlocksAt: (gd) => gd.meta.records.totalEvents > 100,
+        onetime: true,
+        price: 50,
+        onActive: () => (hooks.update(h => {
+            h.onEventRoll.push((gd, occurstAt, now) => {
+                if (Math.random() <= 0.1) {
+                    const index = Math.floor(Math.random()*gd.loops.current.events.length);
+                    LoopController.addEvent(index)
+                }
+            })
+            h.onIncome.push((gd, income) => {
+                if (Math.random() <= 0.5) {
+                    income.value*=2;
+                }
+            });
+            return h;
+        })),
+        description: 'Add 10% chance to spawn one more event after any of currently queued events',
         toAuto: 10,
         explainedCondition: 'once timer reached 10 seconds'
     }

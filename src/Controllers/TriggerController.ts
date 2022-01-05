@@ -18,6 +18,11 @@ class TriggerController extends Controller {
         this.____sync('gamedata');
         return true;
     }
+
+    public set(trigger: string) {
+        if (this.gamedata.meta.triggers.includes(trigger)) {return;}
+        this.gamedata.meta.triggers.push(trigger);
+    }
 }
 
 

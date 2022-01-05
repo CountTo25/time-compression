@@ -151,7 +151,7 @@ class LoopController extends Controller {
         }
         }
 
-       
+        this.autobuy();
         gamedata.set(this.gamedata);
     }
 
@@ -176,6 +176,7 @@ class LoopController extends Controller {
     }
 
     private autobuy() {
+        if (!this.gamedata.loops.current.fresh) {return;}
         for (const building of this.gamedata.knowledge.buildings.auto) {
             DataController.purchaseBuilding(building);
         }
@@ -187,13 +188,19 @@ class LoopController extends Controller {
         this.rehook();
     }
 
-    private addEvent(): void
+    public addEvent(related: number = null, distance: number = null): void
     {
         const baseDiff = 1000; //TODO: remake formula
         const events = this.gamedata.loops.current.events;
-        const occursAt = 
-            events[events.length - 1].occursAt 
-            + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+        if (related === null) {related = events.length - 1};
+        let occursAt = 0;
+        if (distance === null) {
+            occursAt = 
+                events[related].occursAt 
+                + (baseDiff * (this.gamedata.loops.current.progress.time / 1000));
+        } else {
+            occursAt = events[related].occursAt + distance;
+        }
 
         const payload = EventController.getRandomEvent().name;
         const wrapped = {occursAt}

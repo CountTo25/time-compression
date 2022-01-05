@@ -22,6 +22,23 @@ const modifications: ModificationModel[] = [
         turnsOnAt: EventDispatchPipeline,
         effect: (pipe: EventDispatchPipeline) => pipe.diff*=0.9
     },
+    {
+        name: 'Event processor',
+        price: 10,
+        description: 'Automatically process 1 event every 5 seconds',
+        unlocksAt: (gd) => gd.datasets.amount >= 5,
+        turnsOnAt: null,
+        effect: null,
+    },
+    {
+        name: 'Improved storage',
+        price: 5,
+        description: 'Increase recorded loop storage by one',
+        unlocksAt: (gd) => gd.datasets.amount >= 3,
+        turnsOnAt: null,
+        effect: null,
+        onPurchase: (gd) => gd.loops.maxCompleted++, 
+    }
     
 ]
   
@@ -34,4 +51,5 @@ type ModificationModel = {
     unlocksAt: (gd: Gamedata) => boolean,
     turnsOnAt: typeof Pipeline,
     effect: (pipe: Pipeline) => any,
+    onPurchase?: (gd: Gamedata) => void, 
 }

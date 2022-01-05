@@ -50,7 +50,7 @@ class EventController extends Controller {
         });
 
         this.gamedata.events.stored.splice(index, 1);
-
+        this.gamedata.meta.records.totalEvents++;
         gamedata.set(this.gamedata);
         
     }
