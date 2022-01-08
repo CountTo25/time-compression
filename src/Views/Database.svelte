@@ -73,6 +73,7 @@ $: gamedata, (() => {
         </div>
         <div class='panel'>
             <div>Total events: {$gamedata.meta.records.totalEvents}</div>
+            <div>Record events: {$gamedata.meta.records.eventsPerLoop}</div>
         </div>
     </div>
 </div>

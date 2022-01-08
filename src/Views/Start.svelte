@@ -93,20 +93,9 @@ function shouldShakeRender() {
                     </div>
                 </div>
 
-                <div class='col-4'>
+                <div class='col-8'>
                     <div class='panel'>
                         <UpgradeStock/>
-                    </div>
-                </div>
-
-                <div class='col-4'>
-                    <div class='panel'>
-                        <div class='title'>Log</div>
-                        <div class='mt-2 text-center log-wrap'>
-                            {#each $logs as log}
-                                <LogEntry {...log}/>
-                            {/each}
-                        </div>
                     </div>
                 </div>
             </div>

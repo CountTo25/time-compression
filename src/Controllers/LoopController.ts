@@ -70,7 +70,10 @@ class LoopController extends Controller {
             onIncome: [],
         });
         for (const key in this.gamedata.loops.current.buildings) {
-            buildings.filter(b => b.name === key)[0].onActive();
+            const building = buildings.find(b => b.name === key);
+            if ('onActive' in building && building.onActive !== null) {
+                building.onActive();
+            }
         }
     }
 
@@ -194,7 +197,6 @@ class LoopController extends Controller {
     public addEvent(delay: number = null): void
     {
         let related = null;
-        let distance = null;
         const baseDiff = 1000; //TODO: remake formula
         const events = this.gamedata.loops.current.events;
         if (related === null) {related = events.length - 1};
@@ -228,6 +230,8 @@ class LoopController extends Controller {
             payload,
         });
         this.toRender.push(occursAt);
+        this.gamedata.loops.current.totalEvents++;
+        this.____sync('gamedata');
         toRender.set(this.toRender);
     }
 
@@ -264,6 +268,8 @@ class LoopController extends Controller {
             buildings: {},
             events: [],
             recorded: [],
+            totalEvents: 0,
+            consumedEvents: 0,
         };
     }
 }

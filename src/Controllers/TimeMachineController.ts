@@ -1,5 +1,6 @@
 import events from "../Models/Events";
 import modifications from "../Models/Modifications";
+import RestartPipeline from "../Pipelines/RestartPipeline";
 import { Gamedata, gamedata } from "../Storage/gamedata";
 import initializeController from "../Tools/initializeController";
 import DatasetController from "./DatasetController";
@@ -41,6 +42,7 @@ class TimeMachineController extends Controller {
     public reset() {
         const toAward = DatasetController.getNextResetDatasets();
         this.gamedata.datasets.amount+=toAward;
+        this.gamedata.meta.totals.datasets+=toAward;
         this.gamedata.cycles.current.totalData = 0;
         this.gamedata.cycles.total++;
         this.gamedata.data.amount = 0;
@@ -56,6 +58,8 @@ class TimeMachineController extends Controller {
                 time: 0,
                 next: 0,
             },
+            totalEvents: 0,
+            consumedEvents: 0,
             length: 0,
             events: [],
             recorded: [],
@@ -63,6 +67,14 @@ class TimeMachineController extends Controller {
         };
         gamedata.set(this.gamedata);
         StoredLoopController.clearLoops();
+
+        const pipe = new RestartPipeline();
+        const mods = modifications.filter(m => m.turnsOnAt === RestartPipeline && this.gamedata.timeMachine.modifications.includes(m.name));
+        for (const modification of mods) {
+            pipe.pushMember(modification.effect);
+        }
+        this.gamedata.data.amount = pipe.run(0).startingData;
+
         SaveController.save();
     }
 }

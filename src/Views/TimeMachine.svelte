@@ -50,10 +50,10 @@ $:$gamedata,(() => {
             <div class='row px-0'>
                 
             {#each renderableModifications as modification}
-                <div class='col-4'>
+                <div class='col-4 my-1'>
                     <div class='wrap-mod'>
                     <div class='oswld text-center'>{modification.name}</div>
-                    <div class='fs-100'>{modification.description}</div>
+                    <div class='fs-100'>{@html modification.description}</div>
                     {#if TimeMachineController.isModificationOwned(modification.name)}
                         <div class='text-center oswld'>Owned</div>
                     {:else}

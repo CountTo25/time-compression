@@ -22,6 +22,8 @@ export const gamedata: Writable<Gamedata> = writable({
             events: [],
             recorded: [],
             buildings: {},
+            totalEvents: 0,
+            consumedEvents: 0,
         },
         completed: [],
         maxCompleted: 3,
@@ -56,6 +58,7 @@ export const gamedata: Writable<Gamedata> = writable({
         },
         totals: {
             loops: 0,
+            datasets: 0,
         },
         triggers: [],
     }
@@ -105,10 +108,11 @@ export type Gamedata = {
             longestLoop: number,
             eventsPerLoop: number,
             totalLoops: number,
-            totalEvents: number,
+            totalEvents: number, //todo: total: {loops, events, datasets}
         }
         totals: {
             loops: number,
+            datasets: number,
         }
         triggers: string[],
     }
@@ -131,6 +135,8 @@ type LoopData = {
     },
     recorded: PlaybackEvent[],
     events: Event[],
+    totalEvents: number,
+    consumedEvents: number,
     length: number,
     buildings: {
         [key: string]: number

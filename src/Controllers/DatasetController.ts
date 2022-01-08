@@ -22,7 +22,7 @@ class SaveController extends Controller {
         const current = this.getNextResetDatasets();
         let total = 0;
         for (let i = 0; i < current + 1; i++) {
-            total+= Math.floor((200 * (i + 1)) * (1.1 ** (i + 1)));
+            total+= Math.floor((150 * (i + 1)) * (1.1 ** (i + 1)));
         }
         return total;
     }
@@ -36,7 +36,7 @@ class SaveController extends Controller {
         let calc = from;
         let sets = 0;
         while (calc > 0) {
-            calc-= Math.floor((200 * (sets+1)) * (1.1 ** (sets+1)));
+            calc-= Math.floor((150 * (sets+1)) * (1.1 ** (sets+1)));
             sets++;
         }
         if (sets > 0) {sets--} //TOOD: elegant

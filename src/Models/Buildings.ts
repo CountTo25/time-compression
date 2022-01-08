@@ -1,6 +1,8 @@
 import DataController from "../Controllers/DataController";
 import LoopController from "../Controllers/LoopController";
 import TimeController from "../Controllers/TimeController";
+import IncomePipeline from "../Pipelines/IncomePipeline";
+import type Pipeable from "../Pipelines/Pipeable";
 import type { Gamedata, gamedata } from "../Storage/gamedata";
 import { pushLog } from "../Storage/logs";
 import { hooks } from "../Storage/loopHooks";
@@ -38,7 +40,7 @@ const buildings: BuildingModel[] = [
         })),
         description: 'Use your knowledge on to predict what actions lead to which events',
         toAuto: 5,
-        explainedCondition: 'when you have more than 5 data'
+        explainedCondition: 'when you have more than 5 data',
     },
     {
         name: 'Probability manipulator',
@@ -57,6 +59,7 @@ const buildings: BuildingModel[] = [
         description: 'Manipulate probabilities to allow any data income to be doubled with 50% chance',
         toAuto: 10,
         explainedCondition: 'once timer reached 10 seconds'
+        
     },
     {
         name: 'Timeline wrapper',
@@ -86,6 +89,51 @@ const buildings: BuildingModel[] = [
         toAuto: 10,
         explainedCondition: 'once timer reached 10 seconds'
     },
+    {
+        name: 'Positive feedback loop',
+        description: 'Increase all data gained by 0.2 per every analyzed event',
+        toAuto: 10,
+        price: 25,
+        explainedCondition: 'Reach total of 15 consumed events at least once',
+        unlocksAt: (gd: Gamedata) => gd.meta.records.eventsPerLoop >= 15,
+        condition: (gd) => true,
+        onetime: true,
+        onActive: null,
+        turnsOnAt: IncomePipeline,
+        effect: (pipe: IncomePipeline) => pipe.income+=Math.floor(pipe.gamedata.loops.current.consumedEvents/5),
+    },
+    {
+        name: 'Data comparision',
+        description: 'Increase all data gained by 1 + 0.25 per unspent dataset',
+        toAuto: 5,
+        price: 5,
+        explainedCondition: 'Have more than 1 dataset',
+        unlocksAt: (gd: Gamedata) => gd.datasets.amount >= 1,
+        condition: (gd) => true,
+        onetime: true,
+        onActive: null,
+        turnsOnAt: IncomePipeline,
+        effect: (pipe: IncomePipeline) => pipe.income+= 1 + Math.floor(pipe.gamedata.datasets.amount/4),
+    },
+    {
+        name: 'Event horizon',
+        description: 'Reduce gap between newly spawned events by 0.01s per each event analyzed',
+        toAuto: 10,
+        price: 30,
+        unlocksAt: (gd: Gamedata) => gd.meta.totals.datasets >= 5,
+        onetime: true,
+        onActive: () => (hooks.update(h => {
+            h.onEventRoll.push((gd, o, now) => {
+                const diff = o.occursAt - now;
+                const calc = (gd.loops.current.consumedEvents*10);
+                if (diff - calc > 0) {o.occursAt-=calc}
+                else {o.occursAt = gd.loops.current.progress.time}
+            });
+            return h
+        })),
+        condition: (gd) => true,
+        explainedCondition: 'after you have more than 5 datasets earned in total'
+    }
 
 ];
 
@@ -103,4 +151,4 @@ type BuildingModel = {
     onActive: Function,
     toAuto: number,
     explainedCondition: string,
-}
+} & Pipeable

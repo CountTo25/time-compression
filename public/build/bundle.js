@@ -6803,6 +6803,8 @@ var app = (function () {
                 events: [],
                 recorded: [],
                 buildings: {},
+                totalEvents: 0,
+                consumedEvents: 0,
             },
             completed: [],
             maxCompleted: 3,
@@ -6834,6 +6836,7 @@ var app = (function () {
             },
             totals: {
                 loops: 0,
+                datasets: 0,
             },
             triggers: [],
         }
@@ -6929,6 +6932,59 @@ var app = (function () {
     }
     var StoredLoopController$1 = initializeController(StoredLoopController);
 
+    class TriggerController extends Controller {
+        constructor() {
+            super(...arguments);
+            this.wrapped = [
+                { key: 'gamedata', source: gamedata },
+            ];
+        }
+        try(trigger, or) {
+            if (this.gamedata.meta.triggers.includes(trigger)) {
+                return true;
+            }
+            const res = or(this.gamedata);
+            if (!res) {
+                return false;
+            }
+            this.gamedata.meta.triggers.push(trigger);
+            this.____sync('gamedata');
+            return true;
+        }
+        set(trigger) {
+            if (this.gamedata.meta.triggers.includes(trigger)) {
+                return;
+            }
+            this.gamedata.meta.triggers.push(trigger);
+        }
+    }
+    const c$2 = initializeController(TriggerController);
+
+    class RestartPipeline extends Pipeline {
+        constructor() {
+            //public work()
+            super(...arguments);
+            this.startingData = 0;
+            this.members = [];
+        }
+        pushMember(_new) {
+            this.beforePush(_new);
+            this.members.push(_new);
+            this.afterPush(_new);
+        }
+        run(startingData = 0) {
+            this.startingData = startingData;
+            for (const pipe of this.members) {
+                pipe(this);
+            }
+            return this;
+        }
+        beforePush(_new) {
+        }
+        afterPush(_new) {
+        }
+    }
+
     const modifications = [
         {
             name: 'Compression of time',
@@ -6940,9 +6996,9 @@ var app = (function () {
         },
         {
             name: 'Compression engine',
-            price: 20,
+            price: 10,
             description: 'Time compression engine that shortens timespan between various events occuring in the world<br>Reduces gaps in time between events by 10%',
-            unlocksAt: (gd) => gd.meta.records.eventsPerLoop > 20,
+            unlocksAt: (gd) => gd.meta.records.eventsPerLoop >= 20,
             turnsOnAt: EventDispatchPipeline,
             effect: (pipe) => pipe.diff *= 0.9
         },
@@ -6955,13 +7011,30 @@ var app = (function () {
             effect: null,
         },
         {
+            name: 'Machine mainframe',
+            price: 10,
+            unlocksAt: (gd) => gd.meta.totals.datasets >= 3,
+            turnsOnAt: null,
+            effect: null,
+            onPurchase: (gd) => c$2.set('mainframe'),
+            description: 'Unlocks a way to build and improve time machine mainframe',
+        },
+        {
             name: 'Improved storage',
-            price: 5,
+            price: 3,
             description: 'Increase recorded loop storage by one',
-            unlocksAt: (gd) => gd.datasets.amount >= 3,
+            unlocksAt: (gd) => gd.meta.totals.datasets >= 2,
             turnsOnAt: null,
             effect: null,
             onPurchase: (gd) => gd.loops.maxCompleted++,
+        },
+        {
+            name: 'Accumulated knowledge',
+            price: 4,
+            unlocksAt: (gd) => gd.meta.totals.datasets >= 4,
+            description: 'Add 10 data whenever you restart your time machine',
+            turnsOnAt: RestartPipeline,
+            effect: (pipe) => pipe.startingData += 10,
         }
     ];
 
@@ -7001,7 +7074,7 @@ var app = (function () {
             const current = this.getNextResetDatasets();
             let total = 0;
             for (let i = 0; i < current + 1; i++) {
-                total += Math.floor((200 * (i + 1)) * (1.1 ** (i + 1)));
+                total += Math.floor((150 * (i + 1)) * (1.1 ** (i + 1)));
             }
             return total;
         }
@@ -7012,7 +7085,7 @@ var app = (function () {
             let calc = from;
             let sets = 0;
             while (calc > 0) {
-                calc -= Math.floor((200 * (sets + 1)) * (1.1 ** (sets + 1)));
+                calc -= Math.floor((150 * (sets + 1)) * (1.1 ** (sets + 1)));
                 sets++;
             }
             if (sets > 0) {
@@ -7085,6 +7158,7 @@ var app = (function () {
         reset() {
             const toAward = DatasetController.getNextResetDatasets();
             this.gamedata.datasets.amount += toAward;
+            this.gamedata.meta.totals.datasets += toAward;
             this.gamedata.cycles.current.totalData = 0;
             this.gamedata.cycles.total++;
             this.gamedata.data.amount = 0;
@@ -7100,6 +7174,8 @@ var app = (function () {
                     time: 0,
                     next: 0,
                 },
+                totalEvents: 0,
+                consumedEvents: 0,
                 length: 0,
                 events: [],
                 recorded: [],
@@ -7107,6 +7183,12 @@ var app = (function () {
             };
             gamedata.set(this.gamedata);
             StoredLoopController$1.clearLoops();
+            const pipe = new RestartPipeline();
+            const mods = modifications.filter(m => m.turnsOnAt === RestartPipeline && this.gamedata.timeMachine.modifications.includes(m.name));
+            for (const modification of mods) {
+                pipe.pushMember(modification.effect);
+            }
+            this.gamedata.data.amount = pipe.run(0).startingData;
             SaveController$1.save();
         }
     }
@@ -7163,7 +7245,10 @@ var app = (function () {
                 onIncome: [],
             });
             for (const key in this.gamedata.loops.current.buildings) {
-                buildings.filter(b => b.name === key)[0].onActive();
+                const building = buildings.find(b => b.name === key);
+                if ('onActive' in building && building.onActive !== null) {
+                    building.onActive();
+                }
             }
         }
         refereshRender() {
@@ -7305,6 +7390,8 @@ var app = (function () {
                 payload,
             });
             this.toRender.push(occursAt);
+            this.gamedata.loops.current.totalEvents++;
+            this.____sync('gamedata');
             toRender.set(this.toRender);
         }
         storeLoop() {
@@ -7341,6 +7428,8 @@ var app = (function () {
                 buildings: {},
                 events: [],
                 recorded: [],
+                totalEvents: 0,
+                consumedEvents: 0,
             };
         }
     }
@@ -7376,6 +7465,31 @@ var app = (function () {
     }
     var TimeController$1 = initializeController(TimeController);
 
+    class IncomePipeline extends Pipeline {
+        constructor() {
+            //public work()
+            super(...arguments);
+            this.members = [];
+        }
+        pushMember(_new) {
+            this.beforePush(_new);
+            this.members.push(_new);
+            this.afterPush(_new);
+        }
+        run(income, gamedata) {
+            this.income = income;
+            this.gamedata = gamedata;
+            for (const pipe of this.members) {
+                pipe(this);
+            }
+            return this.income;
+        }
+        beforePush(_new) {
+        }
+        afterPush(_new) {
+        }
+    }
+
     const buildings = [
         {
             name: 'Chain of events',
@@ -7410,7 +7524,7 @@ var app = (function () {
             })),
             description: 'Use your knowledge on to predict what actions lead to which events',
             toAuto: 5,
-            explainedCondition: 'when you have more than 5 data'
+            explainedCondition: 'when you have more than 5 data',
         },
         {
             name: 'Probability manipulator',
@@ -7458,6 +7572,55 @@ var app = (function () {
             toAuto: 10,
             explainedCondition: 'once timer reached 10 seconds'
         },
+        {
+            name: 'Positive feedback loop',
+            description: 'Increase all data gained by 0.2 per every analyzed event',
+            toAuto: 10,
+            price: 25,
+            explainedCondition: 'Reach total of 15 consumed events at least once',
+            unlocksAt: (gd) => gd.meta.records.eventsPerLoop >= 15,
+            condition: (gd) => true,
+            onetime: true,
+            onActive: null,
+            turnsOnAt: IncomePipeline,
+            effect: (pipe) => pipe.income += Math.floor(pipe.gamedata.loops.current.consumedEvents / 5),
+        },
+        {
+            name: 'Data comparision',
+            description: 'Increase all data gained by 1 + 0.25 per unspent dataset',
+            toAuto: 5,
+            price: 5,
+            explainedCondition: 'Have more than 1 dataset',
+            unlocksAt: (gd) => gd.datasets.amount >= 1,
+            condition: (gd) => true,
+            onetime: true,
+            onActive: null,
+            turnsOnAt: IncomePipeline,
+            effect: (pipe) => pipe.income += 1 + Math.floor(pipe.gamedata.datasets.amount / 4),
+        },
+        {
+            name: 'Event horizon',
+            description: 'Reduce gap between newly spawned events by 0.01s per each event analyzed',
+            toAuto: 10,
+            price: 30,
+            unlocksAt: (gd) => gd.meta.totals.datasets >= 5,
+            onetime: true,
+            onActive: () => (hooks.update(h => {
+                h.onEventRoll.push((gd, o, now) => {
+                    const diff = o.occursAt - now;
+                    const calc = (gd.loops.current.consumedEvents * 10);
+                    if (diff - calc > 0) {
+                        o.occursAt -= calc;
+                    }
+                    else {
+                        o.occursAt = gd.loops.current.progress.time;
+                    }
+                });
+                return h;
+            })),
+            condition: (gd) => true,
+            explainedCondition: 'after you have more than 5 datasets earned in total'
+        }
     ];
 
     class DataController extends Controller {
@@ -7475,11 +7638,22 @@ var app = (function () {
                     hook(this.gamedata, value);
                 }
             }
+            const buildings = this.getOwnedBuildings();
+            const pipeline = new IncomePipeline();
+            for (const building of buildings) {
+                if (building.turnsOnAt === IncomePipeline) {
+                    pipeline.pushMember(building.effect);
+                }
+            }
+            value.value = pipeline.run(value.value, this.gamedata);
             this.gamedata.data.amount += value.value;
             this.gamedata.loops.current.dataDelta += value.value;
             this.gamedata.cycles.current.totalData += value.value;
             gamedata.set(this.gamedata);
             return value.value;
+        }
+        getOwnedBuildings() {
+            return buildings.filter(b => Object.keys(this.gamedata.loops.current.buildings).includes(b.name));
         }
         purchaseBuilding(ref) {
             const building = buildings.find(b => b.name === ref
@@ -7494,7 +7668,6 @@ var app = (function () {
             if (building.onetime && (building.name in this.gamedata.loops.current.buildings)) {
                 return;
             }
-            //if (!building.unlocksAt(this.gamedata)) {return;}
             this.gamedata.data.amount -= building.price;
             if (!(building.name in this.gamedata.loops.current.buildings)) {
                 this.gamedata.loops.current.buildings[building.name] = 0;
@@ -7504,7 +7677,9 @@ var app = (function () {
                 this.gamedata.knowledge.buildings.purchased[building.name] = 0;
             }
             this.gamedata.knowledge.buildings.purchased[building.name]++;
-            building.onActive();
+            if ('onActive' in building && building.onActive !== null) {
+                building.onActive();
+            }
             gamedata.set(this.gamedata);
         }
         getPurchaseableBuildings() {
@@ -7563,10 +7738,10 @@ var app = (function () {
             if (occurstAt - current > 5000) {
                 return 100;
             }
-            if (occurstAt - current <= 100) {
+            if (occurstAt - current <= 0) {
                 return 0;
             }
-            return (occurstAt - current) / 5000 * 100;
+            return ((occurstAt - current) / 5000 * 100) - 2;
         }
         resolveEvent(name) {
             var _a;
@@ -7597,6 +7772,10 @@ var app = (function () {
             });
             this.gamedata.events.stored.splice(index, 1);
             this.gamedata.meta.records.totalEvents++;
+            this.gamedata.loops.current.consumedEvents++;
+            if (this.gamedata.loops.current.consumedEvents > this.gamedata.meta.records.eventsPerLoop) {
+                this.gamedata.meta.records.eventsPerLoop = this.gamedata.loops.current.consumedEvents;
+            }
             gamedata.set(this.gamedata);
         }
         getRandomEvent() {
@@ -8005,13 +8184,13 @@ var app = (function () {
 
     function get_each_context$7(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[6] = list[i];
-    	child_ctx[8] = i;
+    	child_ctx[7] = list[i];
+    	child_ctx[9] = i;
     	return child_ctx;
     }
 
-    // (25:4) {:else}
-    function create_else_block$5(ctx) {
+    // (34:4) {:else}
+    function create_else_block_1$1(ctx) {
     	let div0;
     	let t0;
     	let t1_value = /*$gamedata*/ ctx[1].loops.current.recorded.length + "";
@@ -8024,6 +8203,23 @@ var app = (function () {
     	let t6_value = /*perSecond*/ ctx[2].toFixed(2) + "";
     	let t6;
     	let t7;
+    	let t8;
+    	let div2;
+    	let t10;
+    	let current_block_type_index;
+    	let if_block;
+    	let if_block_anchor;
+    	let current;
+    	const if_block_creators = [create_if_block_2$2, create_else_block_2];
+    	const if_blocks = [];
+
+    	function select_block_type_2(ctx, dirty) {
+    		if (/*$logs*/ ctx[3].length > 0) return 0;
+    		return 1;
+    	}
+
+    	current_block_type_index = select_block_type_2(ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
 
     	const block = {
     		c: function create() {
@@ -8037,8 +8233,16 @@ var app = (function () {
     			t5 = text(" (");
     			t6 = text(t6_value);
     			t7 = text("/s)");
-    			add_location(div0, file$7, 25, 8, 1114);
-    			add_location(div1, file$7, 26, 8, 1189);
+    			t8 = space();
+    			div2 = element("div");
+    			div2.textContent = "Latest analyzed event:";
+    			t10 = space();
+    			if_block.c();
+    			if_block_anchor = empty$1();
+    			add_location(div0, file$7, 34, 8, 1466);
+    			add_location(div1, file$7, 35, 8, 1541);
+    			attr_dev(div2, "class", "text-center oswld");
+    			add_location(div2, file$7, 36, 8, 1609);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div0, anchor);
@@ -8051,37 +8255,86 @@ var app = (function () {
     			append_dev(div1, t5);
     			append_dev(div1, t6);
     			append_dev(div1, t7);
+    			insert_dev(target, t8, anchor);
+    			insert_dev(target, div2, anchor);
+    			insert_dev(target, t10, anchor);
+    			if_blocks[current_block_type_index].m(target, anchor);
+    			insert_dev(target, if_block_anchor, anchor);
+    			current = true;
     		},
     		p: function update(ctx, dirty) {
-    			if (dirty & /*$gamedata*/ 2 && t1_value !== (t1_value = /*$gamedata*/ ctx[1].loops.current.recorded.length + "")) set_data_dev(t1, t1_value);
-    			if (dirty & /*totalIncome*/ 1) set_data_dev(t4, /*totalIncome*/ ctx[0]);
-    			if (dirty & /*perSecond*/ 4 && t6_value !== (t6_value = /*perSecond*/ ctx[2].toFixed(2) + "")) set_data_dev(t6, t6_value);
+    			if ((!current || dirty & /*$gamedata*/ 2) && t1_value !== (t1_value = /*$gamedata*/ ctx[1].loops.current.recorded.length + "")) set_data_dev(t1, t1_value);
+    			if (!current || dirty & /*totalIncome*/ 1) set_data_dev(t4, /*totalIncome*/ ctx[0]);
+    			if ((!current || dirty & /*perSecond*/ 4) && t6_value !== (t6_value = /*perSecond*/ ctx[2].toFixed(2) + "")) set_data_dev(t6, t6_value);
+    			let previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type_2(ctx);
+
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(ctx, dirty);
+    			} else {
+    				group_outros();
+
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+
+    				check_outros();
+    				if_block = if_blocks[current_block_type_index];
+
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				} else {
+    					if_block.p(ctx, dirty);
+    				}
+
+    				transition_in(if_block, 1);
+    				if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    			}
     		},
-    		i: noop,
-    		o: noop,
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div0);
     			if (detaching) detach_dev(t2);
     			if (detaching) detach_dev(div1);
+    			if (detaching) detach_dev(t8);
+    			if (detaching) detach_dev(div2);
+    			if (detaching) detach_dev(t10);
+    			if_blocks[current_block_type_index].d(detaching);
+    			if (detaching) detach_dev(if_block_anchor);
     		}
     	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_else_block$5.name,
+    		id: create_else_block_1$1.name,
     		type: "else",
-    		source: "(25:4) {:else}",
+    		source: "(34:4) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (12:4) {#if $gamedata.loops.current.fresh}
+    // (15:4) {#if $gamedata.loops.current.fresh}
     function create_if_block$6(ctx) {
-    	let t;
-    	let div;
+    	let t0;
+    	let div0;
     	let button;
+    	let t1;
+    	let div1;
+    	let t3;
+    	let current_block_type_index;
+    	let if_block;
+    	let if_block_anchor;
     	let current;
     	let each_value = Array(/*$gamedata*/ ctx[1].events.capacity);
     	validate_each_argument(each_value);
@@ -8104,7 +8357,17 @@ var app = (function () {
     			$$inline: true
     		});
 
-    	button.$on("click", /*click_handler_1*/ ctx[5]);
+    	button.$on("click", /*click_handler_1*/ ctx[6]);
+    	const if_block_creators = [create_if_block_1$2, create_else_block$5];
+    	const if_blocks = [];
+
+    	function select_block_type_1(ctx, dirty) {
+    		if (/*$logs*/ ctx[3].length > 0) return 0;
+    		return 1;
+    	}
+
+    	current_block_type_index = select_block_type_1(ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
 
     	const block = {
     		c: function create() {
@@ -8112,19 +8375,32 @@ var app = (function () {
     				each_blocks[i].c();
     			}
 
-    			t = space();
-    			div = element("div");
+    			t0 = space();
+    			div0 = element("div");
     			create_component(button.$$.fragment);
-    			add_location(div, file$7, 18, 8, 894);
+    			t1 = space();
+    			div1 = element("div");
+    			div1.textContent = "Latest analyzed event:";
+    			t3 = space();
+    			if_block.c();
+    			if_block_anchor = empty$1();
+    			add_location(div0, file$7, 21, 8, 1012);
+    			attr_dev(div1, "class", "text-center oswld");
+    			add_location(div1, file$7, 27, 8, 1220);
     		},
     		m: function mount(target, anchor) {
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].m(target, anchor);
     			}
 
-    			insert_dev(target, t, anchor);
-    			insert_dev(target, div, anchor);
-    			mount_component(button, div, null);
+    			insert_dev(target, t0, anchor);
+    			insert_dev(target, div0, anchor);
+    			mount_component(button, div0, null);
+    			insert_dev(target, t1, anchor);
+    			insert_dev(target, div1, anchor);
+    			insert_dev(target, t3, anchor);
+    			if_blocks[current_block_type_index].m(target, anchor);
+    			insert_dev(target, if_block_anchor, anchor);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
@@ -8143,7 +8419,7 @@ var app = (function () {
     						each_blocks[i] = create_each_block$7(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(t.parentNode, t);
+    						each_blocks[i].m(t0.parentNode, t0);
     					}
     				}
 
@@ -8159,11 +8435,36 @@ var app = (function () {
     			const button_changes = {};
     			if (dirty & /*$gamedata*/ 2) button_changes.inactive = /*$gamedata*/ ctx[1].events.stored.length === 0;
 
-    			if (dirty & /*$$scope*/ 512) {
+    			if (dirty & /*$$scope*/ 1024) {
     				button_changes.$$scope = { dirty, ctx };
     			}
 
     			button.$set(button_changes);
+    			let previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type_1(ctx);
+
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(ctx, dirty);
+    			} else {
+    				group_outros();
+
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+
+    				check_outros();
+    				if_block = if_blocks[current_block_type_index];
+
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				} else {
+    					if_block.p(ctx, dirty);
+    				}
+
+    				transition_in(if_block, 1);
+    				if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    			}
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -8173,6 +8474,7 @@ var app = (function () {
     			}
 
     			transition_in(button.$$.fragment, local);
+    			transition_in(if_block);
     			current = true;
     		},
     		o: function outro(local) {
@@ -8183,13 +8485,19 @@ var app = (function () {
     			}
 
     			transition_out(button.$$.fragment, local);
+    			transition_out(if_block);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			destroy_each(each_blocks, detaching);
-    			if (detaching) detach_dev(t);
-    			if (detaching) detach_dev(div);
+    			if (detaching) detach_dev(t0);
+    			if (detaching) detach_dev(div0);
     			destroy_component(button);
+    			if (detaching) detach_dev(t1);
+    			if (detaching) detach_dev(div1);
+    			if (detaching) detach_dev(t3);
+    			if_blocks[current_block_type_index].d(detaching);
+    			if (detaching) detach_dev(if_block_anchor);
     		}
     	};
 
@@ -8197,25 +8505,111 @@ var app = (function () {
     		block,
     		id: create_if_block$6.name,
     		type: "if",
-    		source: "(12:4) {#if $gamedata.loops.current.fresh}",
+    		source: "(15:4) {#if $gamedata.loops.current.fresh}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (13:8) {#each Array($gamedata.events.capacity) as _, index}
+    // (40:8) {:else}
+    function create_else_block_2(ctx) {
+    	let div;
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			div.textContent = "none analyzed yet";
+    			attr_dev(div, "class", "text-center");
+    			add_location(div, file$7, 40, 12, 1772);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    		},
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_else_block_2.name,
+    		type: "else",
+    		source: "(40:8) {:else}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (38:8) {#if $logs.length > 0}
+    function create_if_block_2$2(ctx) {
+    	let logentry;
+    	let current;
+    	const logentry_spread_levels = [/*$logs*/ ctx[3][0]];
+    	let logentry_props = {};
+
+    	for (let i = 0; i < logentry_spread_levels.length; i += 1) {
+    		logentry_props = assign(logentry_props, logentry_spread_levels[i]);
+    	}
+
+    	logentry = new LogEntry({ props: logentry_props, $$inline: true });
+
+    	const block = {
+    		c: function create() {
+    			create_component(logentry.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(logentry, target, anchor);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			const logentry_changes = (dirty & /*$logs*/ 8)
+    			? get_spread_update(logentry_spread_levels, [get_spread_object(/*$logs*/ ctx[3][0])])
+    			: {};
+
+    			logentry.$set(logentry_changes);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(logentry.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(logentry.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(logentry, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block_2$2.name,
+    		type: "if",
+    		source: "(38:8) {#if $logs.length > 0}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (16:8) {#each Array($gamedata.events.capacity) as _, index}
     function create_each_block$7(ctx) {
     	let recorddot;
     	let current;
 
     	function click_handler() {
-    		return /*click_handler*/ ctx[4](/*index*/ ctx[8]);
+    		return /*click_handler*/ ctx[5](/*index*/ ctx[9]);
     	}
 
     	recorddot = new RecordDot({
     			props: {
-    				filled: /*index*/ ctx[8] < /*$gamedata*/ ctx[1].events.stored.length
+    				filled: /*index*/ ctx[9] < /*$gamedata*/ ctx[1].events.stored.length
     			},
     			$$inline: true
     		});
@@ -8233,7 +8627,7 @@ var app = (function () {
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
     			const recorddot_changes = {};
-    			if (dirty & /*$gamedata*/ 2) recorddot_changes.filled = /*index*/ ctx[8] < /*$gamedata*/ ctx[1].events.stored.length;
+    			if (dirty & /*$gamedata*/ 2) recorddot_changes.filled = /*index*/ ctx[9] < /*$gamedata*/ ctx[1].events.stored.length;
     			recorddot.$set(recorddot_changes);
     		},
     		i: function intro(local) {
@@ -8254,14 +8648,14 @@ var app = (function () {
     		block,
     		id: create_each_block$7.name,
     		type: "each",
-    		source: "(13:8) {#each Array($gamedata.events.capacity) as _, index}",
+    		source: "(16:8) {#each Array($gamedata.events.capacity) as _, index}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (20:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >
+    // (23:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >
     function create_default_slot$7(ctx) {
     	let t;
 
@@ -8281,7 +8675,93 @@ var app = (function () {
     		block,
     		id: create_default_slot$7.name,
     		type: "slot",
-    		source: "(20:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >",
+    		source: "(23:12) <Button                  inactive={$gamedata.events.stored.length === 0}                 on:click={()=>EventController.logRecord(0)}             >",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (31:8) {:else}
+    function create_else_block$5(ctx) {
+    	let div;
+
+    	const block = {
+    		c: function create() {
+    			div = element("div");
+    			div.textContent = "none analyzed yet";
+    			attr_dev(div, "class", "text-center");
+    			add_location(div, file$7, 31, 12, 1383);
+    		},
+    		m: function mount(target, anchor) {
+    			insert_dev(target, div, anchor);
+    		},
+    		p: noop,
+    		i: noop,
+    		o: noop,
+    		d: function destroy(detaching) {
+    			if (detaching) detach_dev(div);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_else_block$5.name,
+    		type: "else",
+    		source: "(31:8) {:else}",
+    		ctx
+    	});
+
+    	return block;
+    }
+
+    // (29:8) {#if $logs.length > 0}
+    function create_if_block_1$2(ctx) {
+    	let logentry;
+    	let current;
+    	const logentry_spread_levels = [/*$logs*/ ctx[3][0]];
+    	let logentry_props = {};
+
+    	for (let i = 0; i < logentry_spread_levels.length; i += 1) {
+    		logentry_props = assign(logentry_props, logentry_spread_levels[i]);
+    	}
+
+    	logentry = new LogEntry({ props: logentry_props, $$inline: true });
+
+    	const block = {
+    		c: function create() {
+    			create_component(logentry.$$.fragment);
+    		},
+    		m: function mount(target, anchor) {
+    			mount_component(logentry, target, anchor);
+    			current = true;
+    		},
+    		p: function update(ctx, dirty) {
+    			const logentry_changes = (dirty & /*$logs*/ 8)
+    			? get_spread_update(logentry_spread_levels, [get_spread_object(/*$logs*/ ctx[3][0])])
+    			: {};
+
+    			logentry.$set(logentry_changes);
+    		},
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(logentry.$$.fragment, local);
+    			current = true;
+    		},
+    		o: function outro(local) {
+    			transition_out(logentry.$$.fragment, local);
+    			current = false;
+    		},
+    		d: function destroy(detaching) {
+    			destroy_component(logentry, detaching);
+    		}
+    	};
+
+    	dispatch_dev("SvelteRegisterBlock", {
+    		block,
+    		id: create_if_block_1$2.name,
+    		type: "if",
+    		source: "(29:8) {#if $logs.length > 0}",
     		ctx
     	});
 
@@ -8295,7 +8775,7 @@ var app = (function () {
     	let current_block_type_index;
     	let if_block;
     	let current;
-    	const if_block_creators = [create_if_block$6, create_else_block$5];
+    	const if_block_creators = [create_if_block$6, create_else_block_1$1];
     	const if_blocks = [];
 
     	function select_block_type(ctx, dirty) {
@@ -8314,9 +8794,9 @@ var app = (function () {
     			div1 = element("div");
     			if_block.c();
     			attr_dev(div0, "class", "title");
-    			add_location(div0, file$7, 9, 0, 529);
+    			add_location(div0, file$7, 12, 0, 647);
     			attr_dev(div1, "class", "mt-2 text-center");
-    			add_location(div1, file$7, 10, 0, 570);
+    			add_location(div1, file$7, 13, 0, 688);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -8388,8 +8868,11 @@ var app = (function () {
     	let totalIncome;
     	let perSecond;
     	let $gamedata;
+    	let $logs;
     	validate_store(gamedata, 'gamedata');
     	component_subscribe($$self, gamedata, $$value => $$invalidate(1, $gamedata = $$value));
+    	validate_store(logs, 'logs');
+    	component_subscribe($$self, logs, $$value => $$invalidate(3, $logs = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots('EventStock', slots, []);
     	const writable_props = [];
@@ -8406,16 +8889,19 @@ var app = (function () {
     		EventController: EventController$1,
     		RecordDot,
     		Button,
+    		LogEntry,
+    		logs,
     		totalIncome,
     		perSecond,
     		mapped,
-    		$gamedata
+    		$gamedata,
+    		$logs
     	});
 
     	$$self.$inject_state = $$props => {
     		if ('totalIncome' in $$props) $$invalidate(0, totalIncome = $$props.totalIncome);
     		if ('perSecond' in $$props) $$invalidate(2, perSecond = $$props.perSecond);
-    		if ('mapped' in $$props) $$invalidate(3, mapped = $$props.mapped);
+    		if ('mapped' in $$props) $$invalidate(4, mapped = $$props.mapped);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -8424,10 +8910,10 @@ var app = (function () {
 
     	$$self.$$.update = () => {
     		if ($$self.$$.dirty & /*$gamedata*/ 2) {
-    			$$invalidate(3, mapped = $gamedata.loops.current.recorded.map(r => r.deltaData));
+    			$$invalidate(4, mapped = $gamedata.loops.current.recorded.map(r => r.deltaData));
     		}
 
-    		if ($$self.$$.dirty & /*$gamedata, mapped*/ 10) {
+    		if ($$self.$$.dirty & /*$gamedata, mapped*/ 18) {
     			$$invalidate(0, totalIncome = $gamedata.loops.current.fresh
     			? 0
     			: mapped.length > 0 ? mapped.reduce((r, x) => r += x) : 0);
@@ -8440,7 +8926,15 @@ var app = (function () {
     		}
     	};
 
-    	return [totalIncome, $gamedata, perSecond, mapped, click_handler, click_handler_1];
+    	return [
+    		totalIncome,
+    		$gamedata,
+    		perSecond,
+    		$logs,
+    		mapped,
+    		click_handler,
+    		click_handler_1
+    	];
     }
 
     class EventStock extends SvelteComponentDev {
@@ -8468,25 +8962,27 @@ var app = (function () {
     	return child_ctx;
     }
 
-    function get_each_context_1$2(ctx, list, i) {
+    function get_each_context_1$1(ctx, list, i) {
     	const child_ctx = ctx.slice();
     	child_ctx[6] = list[i];
     	return child_ctx;
     }
 
-    // (13:4) {#if purchaseable.length === 0}
+    // (14:4) {#if purchaseable.length === 0}
     function create_if_block_2$1(ctx) {
-    	let t;
+    	let div;
 
     	const block = {
     		c: function create() {
-    			t = text("No upgrades available at the time");
+    			div = element("div");
+    			div.textContent = "No upgrades available at the time";
+    			add_location(div, file$6, 15, 8, 623);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, t, anchor);
+    			insert_dev(target, div, anchor);
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(t);
+    			if (detaching) detach_dev(div);
     		}
     	};
 
@@ -8494,14 +8990,14 @@ var app = (function () {
     		block,
     		id: create_if_block_2$1.name,
     		type: "if",
-    		source: "(13:4) {#if purchaseable.length === 0}",
+    		source: "(14:4) {#if purchaseable.length === 0}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (34:20) {:else}
+    // (37:20) {:else}
     function create_else_block$4(ctx) {
     	let t;
 
@@ -8524,14 +9020,14 @@ var app = (function () {
     		block,
     		id: create_else_block$4.name,
     		type: "else",
-    		source: "(34:20) {:else}",
+    		source: "(37:20) {:else}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (28:20) {#if $gamedata.loops.current.fresh}
+    // (31:20) {#if $gamedata.loops.current.fresh}
     function create_if_block_1$1(ctx) {
     	let button;
     	let current;
@@ -8589,14 +9085,14 @@ var app = (function () {
     		block,
     		id: create_if_block_1$1.name,
     		type: "if",
-    		source: "(28:20) {#if $gamedata.loops.current.fresh}",
+    		source: "(31:20) {#if $gamedata.loops.current.fresh}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (29:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >
+    // (32:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >
     function create_default_slot$6(ctx) {
     	let t;
 
@@ -8616,15 +9112,16 @@ var app = (function () {
     		block,
     		id: create_default_slot$6.name,
     		type: "slot",
-    		source: "(29:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >",
+    		source: "(32:20) <Button                          mw={true}                          inactive={$gamedata.data.amount < building.price}                         on:click={() => DataController.purchaseBuilding(building.name)}                     >",
     		ctx
     	});
 
     	return block;
     }
 
-    // (16:4) {#each purchaseable as building}
-    function create_each_block_1$2(ctx) {
+    // (18:4) {#each purchaseable as building}
+    function create_each_block_1$1(ctx) {
+    	let div7;
     	let div6;
     	let div0;
     	let t0_value = /*building*/ ctx[6].name + "";
@@ -8657,6 +9154,7 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
+    			div7 = element("div");
     			div6 = element("div");
     			div0 = element("div");
     			t0 = text(t0_value);
@@ -8671,23 +9169,26 @@ var app = (function () {
     			t5 = space();
     			div3 = element("div");
     			if_block.c();
-    			attr_dev(div0, "class", "subtitle oswld svelte-1iuzwq1");
-    			add_location(div0, file$6, 17, 8, 711);
-    			attr_dev(div1, "class", "description text-start svelte-1iuzwq1");
-    			add_location(div1, file$6, 18, 8, 769);
+    			attr_dev(div0, "class", "subtitle oswld svelte-c4buwf");
+    			add_location(div0, file$6, 20, 8, 787);
+    			attr_dev(div1, "class", "description text-start svelte-c4buwf");
+    			add_location(div1, file$6, 21, 8, 845);
     			attr_dev(div2, "class", "col-6 my-auto");
-    			add_location(div2, file$6, 23, 16, 948);
+    			add_location(div2, file$6, 26, 16, 1024);
     			attr_dev(div3, "class", "col-6 my-auto");
-    			add_location(div3, file$6, 26, 16, 1057);
+    			add_location(div3, file$6, 29, 16, 1133);
     			attr_dev(div4, "class", "row px-0");
-    			add_location(div4, file$6, 22, 12, 909);
+    			add_location(div4, file$6, 25, 12, 985);
     			attr_dev(div5, "class", "actions my-1");
-    			add_location(div5, file$6, 21, 8, 870);
-    			attr_dev(div6, "class", "upgrade-node my-1 svelte-1iuzwq1");
-    			add_location(div6, file$6, 16, 4, 671);
+    			add_location(div5, file$6, 24, 8, 946);
+    			attr_dev(div6, "class", "upgrade-node svelte-c4buwf");
+    			add_location(div6, file$6, 19, 8, 752);
+    			attr_dev(div7, "class", "col-6 my-1");
+    			add_location(div7, file$6, 18, 4, 719);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div6, anchor);
+    			insert_dev(target, div7, anchor);
+    			append_dev(div7, div6);
     			append_dev(div6, div0);
     			append_dev(div0, t0);
     			append_dev(div6, t1);
@@ -8743,23 +9244,23 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div6);
+    			if (detaching) detach_dev(div7);
     			if_blocks[current_block_type_index].d();
     		}
     	};
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block_1$2.name,
+    		id: create_each_block_1$1.name,
     		type: "each",
-    		source: "(16:4) {#each purchaseable as building}",
+    		source: "(18:4) {#each purchaseable as building}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (42:4) {#if $gamedata.loops.current.fresh}
+    // (46:4) {#if $gamedata.loops.current.fresh}
     function create_if_block$5(ctx) {
     	let each_1_anchor;
     	let each_value = Object.keys(/*$gamedata*/ ctx[0].loops.current.buildings);
@@ -8820,16 +9321,17 @@ var app = (function () {
     		block,
     		id: create_if_block$5.name,
     		type: "if",
-    		source: "(42:4) {#if $gamedata.loops.current.fresh}",
+    		source: "(46:4) {#if $gamedata.loops.current.fresh}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (43:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}
+    // (47:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}
     function create_each_block$6(ctx) {
-    	let div;
+    	let div1;
+    	let div0;
     	let span0;
     	let t0_value = /*owned*/ ctx[3] + "";
     	let t0;
@@ -8839,7 +9341,8 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
-    			div = element("div");
+    			div1 = element("div");
+    			div0 = element("div");
     			span0 = element("span");
     			t0 = text(t0_value);
     			t1 = space();
@@ -8847,25 +9350,28 @@ var app = (function () {
     			span1.textContent = "(owned)";
     			t3 = space();
     			attr_dev(span0, "class", "oswld");
-    			add_location(span0, file$6, 44, 16, 1741);
+    			add_location(span0, file$6, 49, 20, 1884);
     			attr_dev(span1, "class", "fw-100");
-    			add_location(span1, file$6, 44, 51, 1776);
-    			attr_dev(div, "class", "upgrade-node my-1 svelte-1iuzwq1");
-    			add_location(div, file$6, 43, 12, 1693);
+    			add_location(span1, file$6, 49, 55, 1919);
+    			attr_dev(div0, "class", "upgrade-node my-auto svelte-c4buwf");
+    			add_location(div0, file$6, 48, 16, 1829);
+    			attr_dev(div1, "class", "col-6 my-1");
+    			add_location(div1, file$6, 47, 12, 1788);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div, anchor);
-    			append_dev(div, span0);
+    			insert_dev(target, div1, anchor);
+    			append_dev(div1, div0);
+    			append_dev(div0, span0);
     			append_dev(span0, t0);
-    			append_dev(div, t1);
-    			append_dev(div, span1);
-    			append_dev(div, t3);
+    			append_dev(div0, t1);
+    			append_dev(div0, span1);
+    			append_dev(div1, t3);
     		},
     		p: function update(ctx, dirty) {
     			if (dirty & /*$gamedata*/ 1 && t0_value !== (t0_value = /*owned*/ ctx[3] + "")) set_data_dev(t0, t0_value);
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div);
+    			if (detaching) detach_dev(div1);
     		}
     	};
 
@@ -8873,7 +9379,7 @@ var app = (function () {
     		block,
     		id: create_each_block$6.name,
     		type: "each",
-    		source: "(43:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}",
+    		source: "(47:8) {#each Object.keys($gamedata.loops.current.buildings) as owned}",
     		ctx
     	});
 
@@ -8881,6 +9387,7 @@ var app = (function () {
     }
 
     function create_fragment$8(ctx) {
+    	let div2;
     	let div0;
     	let t1;
     	let div1;
@@ -8893,7 +9400,7 @@ var app = (function () {
     	let each_blocks = [];
 
     	for (let i = 0; i < each_value_1.length; i += 1) {
-    		each_blocks[i] = create_each_block_1$2(get_each_context_1$2(ctx, each_value_1, i));
+    		each_blocks[i] = create_each_block_1$1(get_each_context_1$1(ctx, each_value_1, i));
     	}
 
     	const out = i => transition_out(each_blocks[i], 1, 1, () => {
@@ -8904,6 +9411,7 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
+    			div2 = element("div");
     			div0 = element("div");
     			div0.textContent = "Upgrades";
     			t1 = space();
@@ -8917,18 +9425,21 @@ var app = (function () {
 
     			t3 = space();
     			if (if_block1) if_block1.c();
-    			attr_dev(div0, "class", "title");
-    			add_location(div0, file$6, 10, 0, 466);
-    			attr_dev(div1, "class", "wrap-stock mt-2 text-center svelte-1iuzwq1");
-    			add_location(div1, file$6, 11, 0, 500);
+    			attr_dev(div0, "class", "title col-12");
+    			add_location(div0, file$6, 11, 0, 484);
+    			attr_dev(div1, "class", "wrap-stock mt-2 col-12 row text-center svelte-c4buwf");
+    			add_location(div1, file$6, 12, 0, 525);
+    			attr_dev(div2, "class", "row");
+    			add_location(div2, file$6, 10, 0, 466);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div0, anchor);
-    			insert_dev(target, t1, anchor);
-    			insert_dev(target, div1, anchor);
+    			insert_dev(target, div2, anchor);
+    			append_dev(div2, div0);
+    			append_dev(div2, t1);
+    			append_dev(div2, div1);
     			if (if_block0) if_block0.m(div1, null);
     			append_dev(div1, t2);
 
@@ -8958,13 +9469,13 @@ var app = (function () {
     				let i;
 
     				for (i = 0; i < each_value_1.length; i += 1) {
-    					const child_ctx = get_each_context_1$2(ctx, each_value_1, i);
+    					const child_ctx = get_each_context_1$1(ctx, each_value_1, i);
 
     					if (each_blocks[i]) {
     						each_blocks[i].p(child_ctx, dirty);
     						transition_in(each_blocks[i], 1);
     					} else {
-    						each_blocks[i] = create_each_block_1$2(child_ctx);
+    						each_blocks[i] = create_each_block_1$1(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
     						each_blocks[i].m(div1, t3);
@@ -9012,9 +9523,7 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div0);
-    			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(div1);
+    			if (detaching) detach_dev(div2);
     			if (if_block0) if_block0.d();
     			destroy_each(each_blocks, detaching);
     			if (if_block1) if_block1.d();
@@ -9094,13 +9603,7 @@ var app = (function () {
 
     function get_each_context$5(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[11] = list[i];
-    	return child_ctx;
-    }
-
-    function get_each_context_1$1(ctx, list, i) {
-    	const child_ctx = ctx.slice();
-    	child_ctx[14] = list[i];
+    	child_ctx[10] = list[i];
     	return child_ctx;
     }
 
@@ -9254,11 +9757,11 @@ var app = (function () {
     			span1 = element("span");
     			t5 = text(/*nextEvent*/ ctx[2]);
     			attr_dev(span0, "class", "mono");
-    			add_location(span0, file$5, 50, 28, 2107);
-    			add_location(div0, file$5, 48, 24, 2030);
+    			add_location(span0, file$5, 50, 28, 2079);
+    			add_location(div0, file$5, 48, 24, 2002);
     			attr_dev(span1, "class", "mono");
-    			add_location(span1, file$5, 57, 41, 2529);
-    			add_location(div1, file$5, 57, 24, 2512);
+    			add_location(span1, file$5, 57, 41, 2501);
+    			add_location(div1, file$5, 57, 24, 2484);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div0, anchor);
@@ -9352,7 +9855,7 @@ var app = (function () {
     	let t0;
     	let div1;
     	let t1;
-    	let div11;
+    	let div7;
     	let div4;
     	let div3;
     	let eventstock;
@@ -9360,28 +9863,8 @@ var app = (function () {
     	let div6;
     	let div5;
     	let upgradestock;
-    	let t3;
-    	let div10;
-    	let div9;
-    	let div7;
-    	let t5;
-    	let div8;
     	let current;
-    	let each_value_1 = /*$toRender*/ ctx[0];
-    	validate_each_argument(each_value_1);
-    	let each_blocks_1 = [];
-
-    	for (let i = 0; i < each_value_1.length; i += 1) {
-    		each_blocks_1[i] = create_each_block_1$1(get_each_context_1$1(ctx, each_value_1, i));
-    	}
-
-    	const out = i => transition_out(each_blocks_1[i], 1, 1, () => {
-    		each_blocks_1[i] = null;
-    	});
-
-    	eventstock = new EventStock({ $$inline: true });
-    	upgradestock = new UpgradeStock({ $$inline: true });
-    	let each_value = /*$logs*/ ctx[4];
+    	let each_value = /*$toRender*/ ctx[0];
     	validate_each_argument(each_value);
     	let each_blocks = [];
 
@@ -9389,23 +9872,26 @@ var app = (function () {
     		each_blocks[i] = create_each_block$5(get_each_context$5(ctx, each_value, i));
     	}
 
-    	const out_1 = i => transition_out(each_blocks[i], 1, 1, () => {
+    	const out = i => transition_out(each_blocks[i], 1, 1, () => {
     		each_blocks[i] = null;
     	});
+
+    	eventstock = new EventStock({ $$inline: true });
+    	upgradestock = new UpgradeStock({ $$inline: true });
 
     	const block = {
     		c: function create() {
     			div2 = element("div");
     			div0 = element("div");
 
-    			for (let i = 0; i < each_blocks_1.length; i += 1) {
-    				each_blocks_1[i].c();
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].c();
     			}
 
     			t0 = space();
     			div1 = element("div");
     			t1 = space();
-    			div11 = element("div");
+    			div7 = element("div");
     			div4 = element("div");
     			div3 = element("div");
     			create_component(eventstock.$$.fragment);
@@ -9413,105 +9899,46 @@ var app = (function () {
     			div6 = element("div");
     			div5 = element("div");
     			create_component(upgradestock.$$.fragment);
-    			t3 = space();
-    			div10 = element("div");
-    			div9 = element("div");
-    			div7 = element("div");
-    			div7.textContent = "Log";
-    			t5 = space();
-    			div8 = element("div");
-
-    			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].c();
-    			}
-
-    			add_location(div0, file$5, 74, 16, 3145);
+    			add_location(div0, file$5, 74, 16, 3117);
     			attr_dev(div1, "class", "timeline-split svelte-1ok60zb");
-    			add_location(div1, file$5, 79, 16, 3318);
+    			add_location(div1, file$5, 79, 16, 3290);
     			attr_dev(div2, "class", "timeline text-start svelte-1ok60zb");
-    			add_location(div2, file$5, 73, 12, 3095);
+    			add_location(div2, file$5, 73, 12, 3067);
     			attr_dev(div3, "class", "panel svelte-1ok60zb");
-    			add_location(div3, file$5, 85, 20, 3486);
+    			add_location(div3, file$5, 85, 20, 3458);
     			attr_dev(div4, "class", "col-4");
-    			add_location(div4, file$5, 84, 16, 3446);
+    			add_location(div4, file$5, 84, 16, 3418);
     			attr_dev(div5, "class", "panel svelte-1ok60zb");
-    			add_location(div5, file$5, 91, 20, 3651);
-    			attr_dev(div6, "class", "col-4");
-    			add_location(div6, file$5, 90, 16, 3611);
-    			attr_dev(div7, "class", "title");
-    			add_location(div7, file$5, 98, 24, 3862);
-    			attr_dev(div8, "class", "mt-2 text-center log-wrap svelte-1ok60zb");
-    			add_location(div8, file$5, 99, 24, 3915);
-    			attr_dev(div9, "class", "panel svelte-1ok60zb");
-    			add_location(div9, file$5, 97, 20, 3818);
-    			attr_dev(div10, "class", "col-4");
-    			add_location(div10, file$5, 96, 16, 3778);
-    			attr_dev(div11, "class", "row px-0 mt-2");
-    			add_location(div11, file$5, 83, 12, 3402);
+    			add_location(div5, file$5, 91, 20, 3623);
+    			attr_dev(div6, "class", "col-8");
+    			add_location(div6, file$5, 90, 16, 3583);
+    			attr_dev(div7, "class", "row px-0 mt-2");
+    			add_location(div7, file$5, 83, 12, 3374);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div2, anchor);
     			append_dev(div2, div0);
 
-    			for (let i = 0; i < each_blocks_1.length; i += 1) {
-    				each_blocks_1[i].m(div0, null);
+    			for (let i = 0; i < each_blocks.length; i += 1) {
+    				each_blocks[i].m(div0, null);
     			}
 
     			append_dev(div2, t0);
     			append_dev(div2, div1);
     			insert_dev(target, t1, anchor);
-    			insert_dev(target, div11, anchor);
-    			append_dev(div11, div4);
+    			insert_dev(target, div7, anchor);
+    			append_dev(div7, div4);
     			append_dev(div4, div3);
     			mount_component(eventstock, div3, null);
-    			append_dev(div11, t2);
-    			append_dev(div11, div6);
+    			append_dev(div7, t2);
+    			append_dev(div7, div6);
     			append_dev(div6, div5);
     			mount_component(upgradestock, div5, null);
-    			append_dev(div11, t3);
-    			append_dev(div11, div10);
-    			append_dev(div10, div9);
-    			append_dev(div9, div7);
-    			append_dev(div9, t5);
-    			append_dev(div9, div8);
-
-    			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(div8, null);
-    			}
-
     			current = true;
     		},
     		p: function update(ctx, dirty) {
     			if (dirty & /*$toRender*/ 1) {
-    				each_value_1 = /*$toRender*/ ctx[0];
-    				validate_each_argument(each_value_1);
-    				let i;
-
-    				for (i = 0; i < each_value_1.length; i += 1) {
-    					const child_ctx = get_each_context_1$1(ctx, each_value_1, i);
-
-    					if (each_blocks_1[i]) {
-    						each_blocks_1[i].p(child_ctx, dirty);
-    						transition_in(each_blocks_1[i], 1);
-    					} else {
-    						each_blocks_1[i] = create_each_block_1$1(child_ctx);
-    						each_blocks_1[i].c();
-    						transition_in(each_blocks_1[i], 1);
-    						each_blocks_1[i].m(div0, null);
-    					}
-    				}
-
-    				group_outros();
-
-    				for (i = each_value_1.length; i < each_blocks_1.length; i += 1) {
-    					out(i);
-    				}
-
-    				check_outros();
-    			}
-
-    			if (dirty & /*$logs*/ 16) {
-    				each_value = /*$logs*/ ctx[4];
+    				each_value = /*$toRender*/ ctx[0];
     				validate_each_argument(each_value);
     				let i;
 
@@ -9525,14 +9952,14 @@ var app = (function () {
     						each_blocks[i] = create_each_block$5(child_ctx);
     						each_blocks[i].c();
     						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(div8, null);
+    						each_blocks[i].m(div0, null);
     					}
     				}
 
     				group_outros();
 
     				for (i = each_value.length; i < each_blocks.length; i += 1) {
-    					out_1(i);
+    					out(i);
     				}
 
     				check_outros();
@@ -9541,44 +9968,32 @@ var app = (function () {
     		i: function intro(local) {
     			if (current) return;
 
-    			for (let i = 0; i < each_value_1.length; i += 1) {
-    				transition_in(each_blocks_1[i]);
-    			}
-
-    			transition_in(eventstock.$$.fragment, local);
-    			transition_in(upgradestock.$$.fragment, local);
-
     			for (let i = 0; i < each_value.length; i += 1) {
     				transition_in(each_blocks[i]);
     			}
 
+    			transition_in(eventstock.$$.fragment, local);
+    			transition_in(upgradestock.$$.fragment, local);
     			current = true;
     		},
     		o: function outro(local) {
-    			each_blocks_1 = each_blocks_1.filter(Boolean);
-
-    			for (let i = 0; i < each_blocks_1.length; i += 1) {
-    				transition_out(each_blocks_1[i]);
-    			}
-
-    			transition_out(eventstock.$$.fragment, local);
-    			transition_out(upgradestock.$$.fragment, local);
     			each_blocks = each_blocks.filter(Boolean);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				transition_out(each_blocks[i]);
     			}
 
+    			transition_out(eventstock.$$.fragment, local);
+    			transition_out(upgradestock.$$.fragment, local);
     			current = false;
     		},
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div2);
-    			destroy_each(each_blocks_1, detaching);
+    			destroy_each(each_blocks, detaching);
     			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(div11);
+    			if (detaching) detach_dev(div7);
     			destroy_component(eventstock);
     			destroy_component(upgradestock);
-    			destroy_each(each_blocks, detaching);
     		}
     	};
 
@@ -9600,7 +10015,7 @@ var app = (function () {
     	const block = {
     		c: function create() {
     			div = element("div");
-    			add_location(div, file$5, 70, 12, 3042);
+    			add_location(div, file$5, 70, 12, 3014);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -9625,12 +10040,12 @@ var app = (function () {
     }
 
     // (76:20) {#each $toRender as occursAt}
-    function create_each_block_1$1(ctx) {
+    function create_each_block$5(ctx) {
     	let fillabledot;
     	let current;
 
     	fillabledot = new EventDot({
-    			props: { occursAt: /*occursAt*/ ctx[14] },
+    			props: { occursAt: /*occursAt*/ ctx[10] },
     			$$inline: true
     		});
 
@@ -9644,7 +10059,7 @@ var app = (function () {
     		},
     		p: function update(ctx, dirty) {
     			const fillabledot_changes = {};
-    			if (dirty & /*$toRender*/ 1) fillabledot_changes.occursAt = /*occursAt*/ ctx[14];
+    			if (dirty & /*$toRender*/ 1) fillabledot_changes.occursAt = /*occursAt*/ ctx[10];
     			fillabledot.$set(fillabledot_changes);
     		},
     		i: function intro(local) {
@@ -9663,62 +10078,9 @@ var app = (function () {
 
     	dispatch_dev("SvelteRegisterBlock", {
     		block,
-    		id: create_each_block_1$1.name,
-    		type: "each",
-    		source: "(76:20) {#each $toRender as occursAt}",
-    		ctx
-    	});
-
-    	return block;
-    }
-
-    // (101:28) {#each $logs as log}
-    function create_each_block$5(ctx) {
-    	let logentry;
-    	let current;
-    	const logentry_spread_levels = [/*log*/ ctx[11]];
-    	let logentry_props = {};
-
-    	for (let i = 0; i < logentry_spread_levels.length; i += 1) {
-    		logentry_props = assign(logentry_props, logentry_spread_levels[i]);
-    	}
-
-    	logentry = new LogEntry({ props: logentry_props, $$inline: true });
-
-    	const block = {
-    		c: function create() {
-    			create_component(logentry.$$.fragment);
-    		},
-    		m: function mount(target, anchor) {
-    			mount_component(logentry, target, anchor);
-    			current = true;
-    		},
-    		p: function update(ctx, dirty) {
-    			const logentry_changes = (dirty & /*$logs*/ 16)
-    			? get_spread_update(logentry_spread_levels, [get_spread_object(/*log*/ ctx[11])])
-    			: {};
-
-    			logentry.$set(logentry_changes);
-    		},
-    		i: function intro(local) {
-    			if (current) return;
-    			transition_in(logentry.$$.fragment, local);
-    			current = true;
-    		},
-    		o: function outro(local) {
-    			transition_out(logentry.$$.fragment, local);
-    			current = false;
-    		},
-    		d: function destroy(detaching) {
-    			destroy_component(logentry, detaching);
-    		}
-    	};
-
-    	dispatch_dev("SvelteRegisterBlock", {
-    		block,
     		id: create_each_block$5.name,
     		type: "each",
-    		source: "(101:28) {#each $logs as log}",
+    		source: "(76:20) {#each $toRender as occursAt}",
     		ctx
     	});
 
@@ -9765,7 +10127,7 @@ var app = (function () {
     			$$inline: true
     		});
 
-    	button0.$on("click", /*click_handler*/ ctx[5]);
+    	button0.$on("click", /*click_handler*/ ctx[4]);
 
     	button1 = new Button({
     			props: {
@@ -9775,7 +10137,7 @@ var app = (function () {
     			$$inline: true
     		});
 
-    	button1.$on("click", /*click_handler_1*/ ctx[6]);
+    	button1.$on("click", /*click_handler_1*/ ctx[5]);
 
     	button2 = new Button({
     			props: {
@@ -9786,7 +10148,7 @@ var app = (function () {
     			$$inline: true
     		});
 
-    	button2.$on("click", /*click_handler_2*/ ctx[7]);
+    	button2.$on("click", /*click_handler_2*/ ctx[6]);
 
     	function select_block_type(ctx, dirty) {
     		if (/*$gamedata*/ ctx[1].loops.current.running) return create_if_block_1;
@@ -9836,23 +10198,23 @@ var app = (function () {
     			div8 = element("div");
     			if_block1.c();
     			attr_dev(div0, "class", "title mb-2");
-    			add_location(div0, file$5, 30, 12, 1174);
+    			add_location(div0, file$5, 30, 12, 1146);
     			attr_dev(div1, "class", "controls text-center");
-    			add_location(div1, file$5, 31, 12, 1231);
+    			add_location(div1, file$5, 31, 12, 1203);
     			attr_dev(div2, "class", "col-6 text-center");
-    			add_location(div2, file$5, 46, 16, 1916);
-    			add_location(div3, file$5, 63, 20, 2763);
-    			add_location(div4, file$5, 64, 20, 2830);
+    			add_location(div2, file$5, 46, 16, 1888);
+    			add_location(div3, file$5, 63, 20, 2735);
+    			add_location(div4, file$5, 64, 20, 2802);
     			attr_dev(div5, "class", "col-6 text-center");
-    			add_location(div5, file$5, 62, 16, 2711);
+    			add_location(div5, file$5, 62, 16, 2683);
     			attr_dev(div6, "class", "row px-0");
-    			add_location(div6, file$5, 45, 12, 1877);
+    			add_location(div6, file$5, 45, 12, 1849);
     			attr_dev(div7, "class", "col-12 text-center");
-    			add_location(div7, file$5, 29, 4, 1129);
+    			add_location(div7, file$5, 29, 4, 1101);
     			attr_dev(div8, "class", "col-12 px-0 text-center");
-    			add_location(div8, file$5, 68, 4, 2945);
+    			add_location(div8, file$5, 68, 4, 2917);
     			attr_dev(div9, "class", "row");
-    			add_location(div9, file$5, 28, 0, 1107);
+    			add_location(div9, file$5, 28, 0, 1079);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -9890,14 +10252,14 @@ var app = (function () {
     			const button0_changes = {};
     			if (dirty & /*$gamedata*/ 2) button0_changes.inactive = !/*$gamedata*/ ctx[1].loops.current.running;
 
-    			if (dirty & /*$$scope, $gamedata*/ 131074) {
+    			if (dirty & /*$$scope, $gamedata*/ 8194) {
     				button0_changes.$$scope = { dirty, ctx };
     			}
 
     			button0.$set(button0_changes);
     			const button1_changes = {};
 
-    			if (dirty & /*$$scope, startButtonText*/ 131080) {
+    			if (dirty & /*$$scope, startButtonText*/ 8200) {
     				button1_changes.$$scope = { dirty, ctx };
     			}
 
@@ -9905,7 +10267,7 @@ var app = (function () {
     			const button2_changes = {};
     			if (dirty & /*$gamedata*/ 2) button2_changes.inactive = /*$gamedata*/ ctx[1].loops.current.fresh;
 
-    			if (dirty & /*$$scope*/ 131072) {
+    			if (dirty & /*$$scope*/ 8192) {
     				button2_changes.$$scope = { dirty, ctx };
     			}
 
@@ -9991,13 +10353,10 @@ var app = (function () {
     	let startButtonText;
     	let $toRender;
     	let $gamedata;
-    	let $logs;
     	validate_store(toRender, 'toRender');
     	component_subscribe($$self, toRender, $$value => $$invalidate(0, $toRender = $$value));
     	validate_store(gamedata, 'gamedata');
     	component_subscribe($$self, gamedata, $$value => $$invalidate(1, $gamedata = $$value));
-    	validate_store(logs, 'logs');
-    	component_subscribe($$self, logs, $$value => $$invalidate(4, $logs = $$value));
     	let { $$slots: slots = {}, $$scope } = $$props;
     	validate_slots('Start', slots, []);
     	let nextEvent = '0s';
@@ -10026,11 +10385,9 @@ var app = (function () {
     	$$self.$capture_state = () => ({
     		Button,
     		FillableDot: EventDot,
-    		LogEntry,
     		LoopController: LoopController$1,
     		TimeController: TimeController$1,
     		gamedata,
-    		logs,
     		toRender,
     		EventStock,
     		UpgradeStock,
@@ -10040,8 +10397,7 @@ var app = (function () {
     		shouldShakeRender,
     		startButtonText,
     		$toRender,
-    		$gamedata,
-    		$logs
+    		$gamedata
     	});
 
     	$$self.$inject_state = $$props => {
@@ -10080,7 +10436,6 @@ var app = (function () {
     		$gamedata,
     		nextEvent,
     		startButtonText,
-    		$logs,
     		click_handler,
     		click_handler_1,
     		click_handler_2
@@ -10100,34 +10455,6 @@ var app = (function () {
     		});
     	}
     }
-
-    class TriggerController extends Controller {
-        constructor() {
-            super(...arguments);
-            this.wrapped = [
-                { key: 'gamedata', source: gamedata },
-            ];
-        }
-        try(trigger, or) {
-            if (this.gamedata.meta.triggers.includes(trigger)) {
-                return true;
-            }
-            const res = or(this.gamedata);
-            if (!res) {
-                return false;
-            }
-            this.gamedata.meta.triggers.push(trigger);
-            this.____sync('gamedata');
-            return true;
-        }
-        set(trigger) {
-            if (this.gamedata.meta.triggers.includes(trigger)) {
-                return;
-            }
-            this.gamedata.meta.triggers.push(trigger);
-        }
-    }
-    const c$2 = initializeController(TriggerController);
 
     /* src/Layout.svelte generated by Svelte v3.44.3 */
     const file$4 = "src/Layout.svelte";
@@ -10967,18 +11294,18 @@ var app = (function () {
 
     function get_each_context$2(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[3] = list[i];
-    	child_ctx[5] = i;
+    	child_ctx[4] = list[i];
+    	child_ctx[6] = i;
     	return child_ctx;
     }
 
     function get_each_context_1(ctx, list, i) {
     	const child_ctx = ctx.slice();
-    	child_ctx[6] = list[i];
+    	child_ctx[7] = list[i];
     	return child_ctx;
     }
 
-    // (23:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >
+    // (33:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >
     function create_default_slot$3(ctx) {
     	let t;
 
@@ -10998,41 +11325,48 @@ var app = (function () {
     		block,
     		id: create_default_slot$3.name,
     		type: "slot",
-    		source: "(23:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >",
+    		source: "(33:32) <Button                                      mw={true}                                     on:click={()=>StoredLoopController.discardLoop(loop.increment)}                                 >",
     		ctx
     	});
 
     	return block;
     }
 
-    // (16:12) {#each $gamedata.loops.completed as loop}
+    // (19:12) {#each $gamedata.loops.completed as loop}
     function create_each_block_1(ctx) {
-    	let div6;
-    	let div5;
+    	let div9;
+    	let div8;
+    	let div3;
+    	let div1;
     	let div0;
     	let t0;
-    	let t1_value = /*loop*/ ctx[6].increment + "";
+    	let t1_value = /*loop*/ ctx[7].increment + "";
     	let t1;
     	let t2;
-    	let div1;
+    	let div2;
+    	let t3_value = (/*loop*/ ctx[7].bakedIncome / (/*loop*/ ctx[7].duration / 1000)).toFixed(2) + "";
     	let t3;
-    	let t4_value = TimeController$1.toPrintable(/*loop*/ ctx[6].duration) + "";
     	let t4;
     	let t5;
-    	let t6_value = /*loop*/ ctx[6].bakedIncome + "";
+    	let div4;
     	let t6;
+    	let t7_value = TimeController$1.toPrintable(/*loop*/ ctx[7].duration) + "";
     	let t7;
     	let t8;
-    	let div4;
-    	let div2;
-    	let button;
+    	let t9_value = /*loop*/ ctx[7].bakedIncome + "";
     	let t9;
-    	let div3;
+    	let t10;
+    	let t11;
+    	let div7;
+    	let div5;
+    	let button;
+    	let t12;
+    	let div6;
     	let progressbar;
     	let current;
 
     	function click_handler() {
-    		return /*click_handler*/ ctx[2](/*loop*/ ctx[6]);
+    		return /*click_handler*/ ctx[3](/*loop*/ ctx[7]);
     	}
 
     	button = new Button({
@@ -11049,88 +11383,107 @@ var app = (function () {
     	progressbar = new Progressbar({
     			props: {
     				tip: 'cycle',
-    				current: /*loop*/ ctx[6].progress.time,
-    				max: /*loop*/ ctx[6].duration,
-    				displayCurrent: TimeController$1.toPrintable(/*loop*/ ctx[6].progress.time),
-    				displayMax: TimeController$1.toPrintable(/*loop*/ ctx[6].duration)
+    				current: /*loop*/ ctx[7].progress.time,
+    				max: /*loop*/ ctx[7].duration,
+    				displayCurrent: TimeController$1.toPrintable(/*loop*/ ctx[7].progress.time),
+    				displayMax: TimeController$1.toPrintable(/*loop*/ ctx[7].duration)
     			},
     			$$inline: true
     		});
 
     	const block = {
     		c: function create() {
-    			div6 = element("div");
-    			div5 = element("div");
+    			div9 = element("div");
+    			div8 = element("div");
+    			div3 = element("div");
+    			div1 = element("div");
     			div0 = element("div");
     			t0 = text("Loop #");
     			t1 = text(t1_value);
     			t2 = space();
-    			div1 = element("div");
-    			t3 = text("Takes ");
-    			t4 = text(t4_value);
-    			t5 = text(" to produce ");
-    			t6 = text(t6_value);
-    			t7 = text(" data");
-    			t8 = space();
-    			div4 = element("div");
     			div2 = element("div");
+    			t3 = text(t3_value);
+    			t4 = text("/s");
+    			t5 = space();
+    			div4 = element("div");
+    			t6 = text("Takes ");
+    			t7 = text(t7_value);
+    			t8 = text(" to produce ");
+    			t9 = text(t9_value);
+    			t10 = text(" data");
+    			t11 = space();
+    			div7 = element("div");
+    			div5 = element("div");
     			create_component(button.$$.fragment);
-    			t9 = space();
-    			div3 = element("div");
+    			t12 = space();
+    			div6 = element("div");
     			create_component(progressbar.$$.fragment);
     			attr_dev(div0, "class", "oswld loop-title svelte-1dppvbc");
-    			add_location(div0, file$2, 18, 24, 746);
-    			add_location(div1, file$2, 19, 24, 829);
-    			attr_dev(div2, "class", "col-4 my-auto");
-    			add_location(div2, file$2, 21, 28, 1005);
-    			attr_dev(div3, "class", "col-8 my-auto pb svelte-1dppvbc");
-    			add_location(div3, file$2, 27, 28, 1333);
-    			attr_dev(div4, "class", "row px-0 mt-2");
-    			add_location(div4, file$2, 20, 24, 949);
-    			attr_dev(div5, "class", "panel svelte-1dppvbc");
-    			add_location(div5, file$2, 17, 20, 702);
-    			attr_dev(div6, "class", "col-4 mb-2");
-    			add_location(div6, file$2, 16, 16, 657);
+    			add_location(div0, file$2, 23, 32, 1151);
+    			attr_dev(div1, "class", "col-6");
+    			add_location(div1, file$2, 22, 28, 1099);
+    			attr_dev(div2, "class", "col-6 text-end");
+    			add_location(div2, file$2, 25, 28, 1273);
+    			attr_dev(div3, "class", "row px-0");
+    			add_location(div3, file$2, 21, 24, 1048);
+    			add_location(div4, file$2, 29, 24, 1479);
+    			attr_dev(div5, "class", "col-4 my-auto");
+    			add_location(div5, file$2, 31, 28, 1655);
+    			attr_dev(div6, "class", "col-8 my-auto pb svelte-1dppvbc");
+    			add_location(div6, file$2, 37, 28, 1983);
+    			attr_dev(div7, "class", "row px-0 mt-2");
+    			add_location(div7, file$2, 30, 24, 1599);
+    			attr_dev(div8, "class", "panel svelte-1dppvbc");
+    			add_location(div8, file$2, 20, 20, 1004);
+    			attr_dev(div9, "class", "col-4 mb-2");
+    			add_location(div9, file$2, 19, 16, 959);
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div6, anchor);
-    			append_dev(div6, div5);
-    			append_dev(div5, div0);
+    			insert_dev(target, div9, anchor);
+    			append_dev(div9, div8);
+    			append_dev(div8, div3);
+    			append_dev(div3, div1);
+    			append_dev(div1, div0);
     			append_dev(div0, t0);
     			append_dev(div0, t1);
-    			append_dev(div5, t2);
-    			append_dev(div5, div1);
-    			append_dev(div1, t3);
-    			append_dev(div1, t4);
-    			append_dev(div1, t5);
-    			append_dev(div1, t6);
-    			append_dev(div1, t7);
-    			append_dev(div5, t8);
-    			append_dev(div5, div4);
-    			append_dev(div4, div2);
-    			mount_component(button, div2, null);
+    			append_dev(div3, t2);
+    			append_dev(div3, div2);
+    			append_dev(div2, t3);
+    			append_dev(div2, t4);
+    			append_dev(div8, t5);
+    			append_dev(div8, div4);
+    			append_dev(div4, t6);
+    			append_dev(div4, t7);
+    			append_dev(div4, t8);
     			append_dev(div4, t9);
-    			append_dev(div4, div3);
-    			mount_component(progressbar, div3, null);
+    			append_dev(div4, t10);
+    			append_dev(div8, t11);
+    			append_dev(div8, div7);
+    			append_dev(div7, div5);
+    			mount_component(button, div5, null);
+    			append_dev(div7, t12);
+    			append_dev(div7, div6);
+    			mount_component(progressbar, div6, null);
     			current = true;
     		},
     		p: function update(new_ctx, dirty) {
     			ctx = new_ctx;
-    			if ((!current || dirty & /*$gamedata*/ 1) && t1_value !== (t1_value = /*loop*/ ctx[6].increment + "")) set_data_dev(t1, t1_value);
-    			if ((!current || dirty & /*$gamedata*/ 1) && t4_value !== (t4_value = TimeController$1.toPrintable(/*loop*/ ctx[6].duration) + "")) set_data_dev(t4, t4_value);
-    			if ((!current || dirty & /*$gamedata*/ 1) && t6_value !== (t6_value = /*loop*/ ctx[6].bakedIncome + "")) set_data_dev(t6, t6_value);
+    			if ((!current || dirty & /*$gamedata*/ 1) && t1_value !== (t1_value = /*loop*/ ctx[7].increment + "")) set_data_dev(t1, t1_value);
+    			if ((!current || dirty & /*$gamedata*/ 1) && t3_value !== (t3_value = (/*loop*/ ctx[7].bakedIncome / (/*loop*/ ctx[7].duration / 1000)).toFixed(2) + "")) set_data_dev(t3, t3_value);
+    			if ((!current || dirty & /*$gamedata*/ 1) && t7_value !== (t7_value = TimeController$1.toPrintable(/*loop*/ ctx[7].duration) + "")) set_data_dev(t7, t7_value);
+    			if ((!current || dirty & /*$gamedata*/ 1) && t9_value !== (t9_value = /*loop*/ ctx[7].bakedIncome + "")) set_data_dev(t9, t9_value);
     			const button_changes = {};
 
-    			if (dirty & /*$$scope*/ 512) {
+    			if (dirty & /*$$scope*/ 1024) {
     				button_changes.$$scope = { dirty, ctx };
     			}
 
     			button.$set(button_changes);
     			const progressbar_changes = {};
-    			if (dirty & /*$gamedata*/ 1) progressbar_changes.current = /*loop*/ ctx[6].progress.time;
-    			if (dirty & /*$gamedata*/ 1) progressbar_changes.max = /*loop*/ ctx[6].duration;
-    			if (dirty & /*$gamedata*/ 1) progressbar_changes.displayCurrent = TimeController$1.toPrintable(/*loop*/ ctx[6].progress.time);
-    			if (dirty & /*$gamedata*/ 1) progressbar_changes.displayMax = TimeController$1.toPrintable(/*loop*/ ctx[6].duration);
+    			if (dirty & /*$gamedata*/ 1) progressbar_changes.current = /*loop*/ ctx[7].progress.time;
+    			if (dirty & /*$gamedata*/ 1) progressbar_changes.max = /*loop*/ ctx[7].duration;
+    			if (dirty & /*$gamedata*/ 1) progressbar_changes.displayCurrent = TimeController$1.toPrintable(/*loop*/ ctx[7].progress.time);
+    			if (dirty & /*$gamedata*/ 1) progressbar_changes.displayMax = TimeController$1.toPrintable(/*loop*/ ctx[7].duration);
     			progressbar.$set(progressbar_changes);
     		},
     		i: function intro(local) {
@@ -11145,7 +11498,7 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div6);
+    			if (detaching) detach_dev(div9);
     			destroy_component(button);
     			destroy_component(progressbar);
     		}
@@ -11155,14 +11508,14 @@ var app = (function () {
     		block,
     		id: create_each_block_1.name,
     		type: "each",
-    		source: "(16:12) {#each $gamedata.loops.completed as loop}",
+    		source: "(19:12) {#each $gamedata.loops.completed as loop}",
     		ctx
     	});
 
     	return block;
     }
 
-    // (41:12) {#each Array(stubCount) as _, i}
+    // (51:12) {#each Array(stubCount) as _, i}
     function create_each_block$2(ctx) {
     	let div1;
     	let div0;
@@ -11175,9 +11528,9 @@ var app = (function () {
     			div0.textContent = "empty slot";
     			t1 = space();
     			attr_dev(div0, "class", "panel text-center svelte-1dppvbc");
-    			add_location(div0, file$2, 42, 16, 2046);
+    			add_location(div0, file$2, 52, 16, 2696);
     			attr_dev(div1, "class", "col-4 mb-2");
-    			add_location(div1, file$2, 41, 12, 2005);
+    			add_location(div1, file$2, 51, 12, 2655);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div1, anchor);
@@ -11193,7 +11546,7 @@ var app = (function () {
     		block,
     		id: create_each_block$2.name,
     		type: "each",
-    		source: "(41:12) {#each Array(stubCount) as _, i}",
+    		source: "(51:12) {#each Array(stubCount) as _, i}",
     		ctx
     	});
 
@@ -11201,13 +11554,18 @@ var app = (function () {
     }
 
     function create_fragment$4(ctx) {
-    	let div4;
-    	let div1;
+    	let div5;
+    	let div2;
     	let div0;
     	let t1;
-    	let div3;
-    	let div2;
+    	let div1;
     	let t2;
+    	let t3;
+    	let t4;
+    	let t5;
+    	let div4;
+    	let div3;
+    	let t6;
     	let current;
     	let each_value_1 = /*$gamedata*/ ctx[0].loops.completed;
     	validate_each_argument(each_value_1);
@@ -11221,7 +11579,7 @@ var app = (function () {
     		each_blocks_1[i] = null;
     	});
 
-    	let each_value = Array(/*stubCount*/ ctx[1]);
+    	let each_value = Array(/*stubCount*/ ctx[2]);
     	validate_each_argument(each_value);
     	let each_blocks = [];
 
@@ -11231,59 +11589,73 @@ var app = (function () {
 
     	const block = {
     		c: function create() {
-    			div4 = element("div");
-    			div1 = element("div");
+    			div5 = element("div");
+    			div2 = element("div");
     			div0 = element("div");
     			div0.textContent = "Loop vault";
     			t1 = space();
+    			div1 = element("div");
+    			t2 = text("Total income: ");
+    			t3 = text(/*totalIncome*/ ctx[1]);
+    			t4 = text("/s");
+    			t5 = space();
+    			div4 = element("div");
     			div3 = element("div");
-    			div2 = element("div");
 
     			for (let i = 0; i < each_blocks_1.length; i += 1) {
     				each_blocks_1[i].c();
     			}
 
-    			t2 = space();
+    			t6 = space();
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
 
     			attr_dev(div0, "class", "title mb-2");
-    			add_location(div0, file$2, 10, 12, 466);
-    			attr_dev(div1, "class", "col-12 text-center");
-    			add_location(div1, file$2, 9, 4, 421);
-    			attr_dev(div2, "class", "row px-0");
-    			add_location(div2, file$2, 14, 8, 564);
-    			attr_dev(div3, "class", "col-12 text-center");
-    			add_location(div3, file$2, 13, 4, 523);
-    			attr_dev(div4, "class", "row");
-    			add_location(div4, file$2, 8, 0, 399);
+    			add_location(div0, file$2, 12, 12, 702);
+    			attr_dev(div1, "class", "mb-2");
+    			add_location(div1, file$2, 13, 12, 755);
+    			attr_dev(div2, "class", "col-12 text-center");
+    			add_location(div2, file$2, 11, 4, 657);
+    			attr_dev(div3, "class", "row px-0");
+    			add_location(div3, file$2, 17, 8, 866);
+    			attr_dev(div4, "class", "col-12 text-center");
+    			add_location(div4, file$2, 16, 4, 825);
+    			attr_dev(div5, "class", "row");
+    			add_location(div5, file$2, 10, 0, 635);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
     		},
     		m: function mount(target, anchor) {
-    			insert_dev(target, div4, anchor);
-    			append_dev(div4, div1);
-    			append_dev(div1, div0);
-    			append_dev(div4, t1);
+    			insert_dev(target, div5, anchor);
+    			append_dev(div5, div2);
+    			append_dev(div2, div0);
+    			append_dev(div2, t1);
+    			append_dev(div2, div1);
+    			append_dev(div1, t2);
+    			append_dev(div1, t3);
+    			append_dev(div1, t4);
+    			append_dev(div5, t5);
+    			append_dev(div5, div4);
     			append_dev(div4, div3);
-    			append_dev(div3, div2);
 
     			for (let i = 0; i < each_blocks_1.length; i += 1) {
-    				each_blocks_1[i].m(div2, null);
+    				each_blocks_1[i].m(div3, null);
     			}
 
-    			append_dev(div2, t2);
+    			append_dev(div3, t6);
 
     			for (let i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(div2, null);
+    				each_blocks[i].m(div3, null);
     			}
 
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
+    			if (!current || dirty & /*totalIncome*/ 2) set_data_dev(t3, /*totalIncome*/ ctx[1]);
+
     			if (dirty & /*$gamedata, TimeController, StoredLoopController*/ 1) {
     				each_value_1 = /*$gamedata*/ ctx[0].loops.completed;
     				validate_each_argument(each_value_1);
@@ -11299,7 +11671,7 @@ var app = (function () {
     						each_blocks_1[i] = create_each_block_1(child_ctx);
     						each_blocks_1[i].c();
     						transition_in(each_blocks_1[i], 1);
-    						each_blocks_1[i].m(div2, t2);
+    						each_blocks_1[i].m(div3, t6);
     					}
     				}
 
@@ -11312,9 +11684,9 @@ var app = (function () {
     				check_outros();
     			}
 
-    			if (dirty & /*stubCount*/ 2) {
+    			if (dirty & /*stubCount*/ 4) {
     				const old_length = each_value.length;
-    				each_value = Array(/*stubCount*/ ctx[1]);
+    				each_value = Array(/*stubCount*/ ctx[2]);
     				validate_each_argument(each_value);
     				let i;
 
@@ -11324,7 +11696,7 @@ var app = (function () {
     					if (!each_blocks[i]) {
     						each_blocks[i] = create_each_block$2(child_ctx);
     						each_blocks[i].c();
-    						each_blocks[i].m(div2, null);
+    						each_blocks[i].m(div3, null);
     					}
     				}
 
@@ -11354,7 +11726,7 @@ var app = (function () {
     			current = false;
     		},
     		d: function destroy(detaching) {
-    			if (detaching) detach_dev(div4);
+    			if (detaching) detach_dev(div5);
     			destroy_each(each_blocks_1, detaching);
     			destroy_each(each_blocks, detaching);
     		}
@@ -11373,6 +11745,7 @@ var app = (function () {
 
     function instance$4($$self, $$props, $$invalidate) {
     	let stubCount;
+    	let totalIncome;
     	let $gamedata;
     	validate_store(gamedata, 'gamedata');
     	component_subscribe($$self, gamedata, $$value => $$invalidate(0, $gamedata = $$value));
@@ -11392,12 +11765,14 @@ var app = (function () {
     		StoredLoopController: StoredLoopController$1,
     		TimeController: TimeController$1,
     		gamedata,
+    		totalIncome,
     		stubCount,
     		$gamedata
     	});
 
     	$$self.$inject_state = $$props => {
-    		if ('stubCount' in $$props) $$invalidate(1, stubCount = $$props.stubCount);
+    		if ('totalIncome' in $$props) $$invalidate(1, totalIncome = $$props.totalIncome);
+    		if ('stubCount' in $$props) $$invalidate(2, stubCount = $$props.stubCount);
     	};
 
     	if ($$props && "$$inject" in $$props) {
@@ -11406,11 +11781,17 @@ var app = (function () {
 
     	$$self.$$.update = () => {
     		if ($$self.$$.dirty & /*$gamedata*/ 1) {
-    			$$invalidate(1, stubCount = $gamedata.loops.maxCompleted - $gamedata.loops.completed.length);
+    			$$invalidate(2, stubCount = $gamedata.loops.maxCompleted - $gamedata.loops.completed.length);
+    		}
+
+    		if ($$self.$$.dirty & /*$gamedata*/ 1) {
+    			$$invalidate(1, totalIncome = $gamedata.loops.completed.length > 0
+    			? ($gamedata.loops.completed.map(c => c.bakedIncome).reduce((a, b) => a += b) / ($gamedata.loops.completed.map(c => c.duration).reduce((a, b) => a += b) / 1000)).toFixed(2)
+    			: 0);
     		}
     	};
 
-    	return [$gamedata, stubCount, click_handler];
+    	return [$gamedata, totalIncome, stubCount, click_handler];
     }
 
     class Loops extends SvelteComponentDev {
@@ -11761,7 +12142,7 @@ var app = (function () {
     	let div1;
     	let div0;
     	let t1;
-    	let div13;
+    	let div14;
     	let div6;
     	let div3;
     	let t3;
@@ -11775,16 +12156,21 @@ var app = (function () {
     	let t8;
     	let div7;
     	let t9;
-    	let div12;
+    	let div13;
     	let div8;
     	let t11;
     	let div9;
     	let t13;
-    	let div11;
+    	let div12;
     	let div10;
     	let t14;
     	let t15_value = /*$gamedata*/ ctx[0].meta.records.totalEvents + "";
     	let t15;
+    	let t16;
+    	let div11;
+    	let t17;
+    	let t18_value = /*$gamedata*/ ctx[0].meta.records.eventsPerLoop + "";
+    	let t18;
     	let current;
     	let each_value = /*purchased*/ ctx[2];
     	validate_each_argument(each_value);
@@ -11805,7 +12191,7 @@ var app = (function () {
     			div0 = element("div");
     			div0.textContent = "Database";
     			t1 = space();
-    			div13 = element("div");
+    			div14 = element("div");
     			div6 = element("div");
     			div3 = element("div");
     			div3.textContent = "Upgrades";
@@ -11825,17 +12211,21 @@ var app = (function () {
     			t8 = space();
     			div7 = element("div");
     			t9 = space();
-    			div12 = element("div");
+    			div13 = element("div");
     			div8 = element("div");
     			div8.textContent = "Stats";
     			t11 = space();
     			div9 = element("div");
     			div9.textContent = "Inspect your stats here";
     			t13 = space();
-    			div11 = element("div");
+    			div12 = element("div");
     			div10 = element("div");
     			t14 = text("Total events: ");
     			t15 = text(t15_value);
+    			t16 = space();
+    			div11 = element("div");
+    			t17 = text("Record events: ");
+    			t18 = text(t18_value);
     			attr_dev(div0, "class", "title mb-2");
     			add_location(div0, file$1, 24, 12, 826);
     			attr_dev(div1, "class", "col-12 text-center");
@@ -11857,12 +12247,13 @@ var app = (function () {
     			attr_dev(div9, "class", "fw-100 text-center");
     			add_location(div9, file$1, 70, 8, 2462);
     			add_location(div10, file$1, 74, 12, 2586);
-    			attr_dev(div11, "class", "panel svelte-8egyot");
-    			add_location(div11, file$1, 73, 8, 2554);
-    			attr_dev(div12, "class", "col-4");
-    			add_location(div12, file$1, 66, 4, 2361);
-    			attr_dev(div13, "class", "row");
-    			add_location(div13, file$1, 28, 0, 884);
+    			add_location(div11, file$1, 75, 12, 2660);
+    			attr_dev(div12, "class", "panel svelte-8egyot");
+    			add_location(div12, file$1, 73, 8, 2554);
+    			attr_dev(div13, "class", "col-4");
+    			add_location(div13, file$1, 66, 4, 2361);
+    			attr_dev(div14, "class", "row");
+    			add_location(div14, file$1, 28, 0, 884);
     		},
     		l: function claim(nodes) {
     			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
@@ -11872,8 +12263,8 @@ var app = (function () {
     			append_dev(div2, div1);
     			append_dev(div1, div0);
     			insert_dev(target, t1, anchor);
-    			insert_dev(target, div13, anchor);
-    			append_dev(div13, div6);
+    			insert_dev(target, div14, anchor);
+    			append_dev(div14, div6);
     			append_dev(div6, div3);
     			append_dev(div6, t3);
     			append_dev(div6, div4);
@@ -11888,18 +12279,22 @@ var app = (function () {
     			}
 
     			append_dev(div5, each_1_anchor);
-    			append_dev(div13, t8);
-    			append_dev(div13, div7);
-    			append_dev(div13, t9);
+    			append_dev(div14, t8);
+    			append_dev(div14, div7);
+    			append_dev(div14, t9);
+    			append_dev(div14, div13);
+    			append_dev(div13, div8);
+    			append_dev(div13, t11);
+    			append_dev(div13, div9);
+    			append_dev(div13, t13);
     			append_dev(div13, div12);
-    			append_dev(div12, div8);
-    			append_dev(div12, t11);
-    			append_dev(div12, div9);
-    			append_dev(div12, t13);
-    			append_dev(div12, div11);
-    			append_dev(div11, div10);
+    			append_dev(div12, div10);
     			append_dev(div10, t14);
     			append_dev(div10, t15);
+    			append_dev(div12, t16);
+    			append_dev(div12, div11);
+    			append_dev(div11, t17);
+    			append_dev(div11, t18);
     			current = true;
     		},
     		p: function update(ctx, [dirty]) {
@@ -11934,6 +12329,7 @@ var app = (function () {
     			}
 
     			if ((!current || dirty & /*$gamedata*/ 1) && t15_value !== (t15_value = /*$gamedata*/ ctx[0].meta.records.totalEvents + "")) set_data_dev(t15, t15_value);
+    			if ((!current || dirty & /*$gamedata*/ 1) && t18_value !== (t18_value = /*$gamedata*/ ctx[0].meta.records.eventsPerLoop + "")) set_data_dev(t18, t18_value);
     		},
     		i: function intro(local) {
     			if (current) return;
@@ -11956,7 +12352,7 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) detach_dev(div2);
     			if (detaching) detach_dev(t1);
-    			if (detaching) detach_dev(div13);
+    			if (detaching) detach_dev(div14);
     			destroy_each(each_blocks, detaching);
     		}
     	};
@@ -12111,9 +12507,9 @@ var app = (function () {
     			div1 = element("div");
     			create_component(button.$$.fragment);
     			attr_dev(div0, "class", "text-center oswld mt-1");
-    			add_location(div0, file, 59, 24, 2598);
+    			add_location(div0, file, 59, 24, 2609);
     			attr_dev(div1, "class", "text-center");
-    			add_location(div1, file, 60, 24, 2704);
+    			add_location(div1, file, 60, 24, 2715);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div0, anchor);
@@ -12173,7 +12569,7 @@ var app = (function () {
     			div = element("div");
     			div.textContent = "Owned";
     			attr_dev(div, "class", "text-center oswld");
-    			add_location(div, file, 57, 24, 2503);
+    			add_location(div, file, 57, 24, 2514);
     		},
     		m: function mount(target, anchor) {
     			insert_dev(target, div, anchor);
@@ -12233,13 +12629,12 @@ var app = (function () {
     	let t0;
     	let t1;
     	let div1;
-    	let t2_value = /*modification*/ ctx[6].description + "";
+    	let raw_value = /*modification*/ ctx[6].description + "";
     	let t2;
-    	let t3;
     	let show_if;
     	let current_block_type_index;
     	let if_block;
-    	let t4;
+    	let t3;
     	let current;
     	const if_block_creators = [create_if_block$1, create_else_block$1];
     	const if_blocks = [];
@@ -12261,17 +12656,16 @@ var app = (function () {
     			t0 = text(t0_value);
     			t1 = space();
     			div1 = element("div");
-    			t2 = text(t2_value);
-    			t3 = space();
+    			t2 = space();
     			if_block.c();
-    			t4 = space();
+    			t3 = space();
     			attr_dev(div0, "class", "oswld text-center");
-    			add_location(div0, file, 54, 20, 2262);
+    			add_location(div0, file, 54, 20, 2267);
     			attr_dev(div1, "class", "fs-100");
-    			add_location(div1, file, 55, 20, 2339);
+    			add_location(div1, file, 55, 20, 2344);
     			attr_dev(div2, "class", "wrap-mod svelte-1xk6d8f");
-    			add_location(div2, file, 53, 20, 2219);
-    			attr_dev(div3, "class", "col-4");
+    			add_location(div2, file, 53, 20, 2224);
+    			attr_dev(div3, "class", "col-4 my-1");
     			add_location(div3, file, 52, 16, 2179);
     		},
     		m: function mount(target, anchor) {
@@ -12281,16 +12675,15 @@ var app = (function () {
     			append_dev(div0, t0);
     			append_dev(div2, t1);
     			append_dev(div2, div1);
-    			append_dev(div1, t2);
-    			append_dev(div2, t3);
+    			div1.innerHTML = raw_value;
+    			append_dev(div2, t2);
     			if_blocks[current_block_type_index].m(div2, null);
-    			append_dev(div3, t4);
+    			append_dev(div3, t3);
     			current = true;
     		},
     		p: function update(ctx, dirty) {
     			if ((!current || dirty & /*renderableModifications*/ 8) && t0_value !== (t0_value = /*modification*/ ctx[6].name + "")) set_data_dev(t0, t0_value);
-    			if ((!current || dirty & /*renderableModifications*/ 8) && t2_value !== (t2_value = /*modification*/ ctx[6].description + "")) set_data_dev(t2, t2_value);
-    			let previous_block_index = current_block_type_index;
+    			if ((!current || dirty & /*renderableModifications*/ 8) && raw_value !== (raw_value = /*modification*/ ctx[6].description + "")) div1.innerHTML = raw_value;			let previous_block_index = current_block_type_index;
     			current_block_type_index = select_block_type(ctx, dirty);
 
     			if (current_block_type_index === previous_block_index) {

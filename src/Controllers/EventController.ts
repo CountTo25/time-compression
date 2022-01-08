@@ -24,8 +24,8 @@ class EventController extends Controller {
         const current = this.gamedata.loops.current.progress.time; //1000
         //1400
         if (occurstAt - current > 5000) {return 100}
-        if (occurstAt - current <= 100 ) {return 0}
-        return (occurstAt - current)/5000 * 100;
+        if (occurstAt - current <= 0 ) {return 0}
+        return ((occurstAt - current)/5000 * 100) - 2;
     }
 
     public resolveEvent(name: string) {
@@ -59,6 +59,11 @@ class EventController extends Controller {
 
         this.gamedata.events.stored.splice(index, 1);
         this.gamedata.meta.records.totalEvents++;
+        this.gamedata.loops.current.consumedEvents++;
+        if (this.gamedata.loops.current.consumedEvents > this.gamedata.meta.records.eventsPerLoop) {
+            this.gamedata.meta.records.eventsPerLoop = this.gamedata.loops.current.consumedEvents;
+        }
+        
         gamedata.set(this.gamedata);
         
     }
